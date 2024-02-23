@@ -126,10 +126,10 @@ function Inventory {
             $InitObjects = $true
         }
 
-        $Objects = (($Inventory | Get-Member) | Where-Object { $_.MemberType -eq 'NoteProperty' }).Name
+        $Categories = (($Inventory | Get-Member) | Where-Object { $_.MemberType -eq 'NoteProperty' }).Name
 
-        foreach ($Object in $Objects) {
-            if ($Inventory.$Object.Host -ne $null) {
+        foreach ($CatItem in $Categories) {
+            if ($null -ne $Inventory.$Object.Host) {
                 $SubObject = $Inventory.$Object | Select-Object RealHost, *
             } else {
                 $SubObject = $Inventory.$Object | Select-Object Host, *
