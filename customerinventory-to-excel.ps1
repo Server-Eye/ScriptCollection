@@ -1,9 +1,13 @@
-﻿<# 
+﻿#Requires -Modules ServerEye.Powershell.Helper, ImportExcel
+
+<# 
     .SYNOPSIS
     Export inventory data from all sensorhubs of a customer into an excel file
 
     .DESCRIPTION
     This script will read all inventory data of all sensorhubs of a customer and export it into an excel file
+    Disclaimer: This script requires two modules, which can be installed from the PowerShell Gallery Repo with the following command:
+    PS C:\> Install-Module -Name ServerEye.Powershell.Helper, ImportExcel
 
     .PARAMETER ApiKey
     The ApiKey of a user that is managing the customer, which inventory data should be extracted from
@@ -59,7 +63,7 @@ function Inventory {
     )
 
     $Hubs = Get-SeApiCustomerContainerList -AuthToken $ApiKey -CId $Customer.Cid | Where-Object { $_.Subtype -eq 2 }
-    $XlsFile = $Dest + "\inventory\$($Customer.CompanyName).xlsx"
+    $XlsFile = Join-Path -Path $Dest -ChildPath "inventory\$($Customer.CompanyName).xlsx"
 
     $CountH = 0
     $HubCount = $Hubs.Count
@@ -84,7 +88,6 @@ function Inventory {
         $LastDate = [datetime]$State.LastDate
         $HubStatus.LastDate = $LastDate
         if ($LastDate -lt ((Get-Date).AddDays(-60)) -or $State.Message -eq 'OCC Connector hat die Verbindung zum Sensorhub verloren') {
-            #Write-Host $Customer.Name '-' $Hub.Name': seit 60 Tagen nicht online'
             $HubStatus.Inventory = $false
             $HostStatusAll += $HubStatus
             continue
@@ -129,10 +132,10 @@ function Inventory {
         $Categories = (($Inventory | Get-Member) | Where-Object { $_.MemberType -eq 'NoteProperty' }).Name
 
         foreach ($CatItem in $Categories) {
-            if ($null -ne $Inventory.$Object.Host) {
-                $SubObject = $Inventory.$Object | Select-Object RealHost, *
+            if ($Inventory.$CatItem.Host -ne $null) {
+                $SubObject = $Inventory.$CatItem | Select-Object RealHost, *
             } else {
-                $SubObject = $Inventory.$Object | Select-Object Host, *
+                $SubObject = $Inventory.$CatItem | Select-Object Host, *
             }
 
             if ($SubObject.Count -gt 1) {
@@ -151,12 +154,12 @@ function Inventory {
             }
             $InitFile = $false
             $ObjectWork = @()
-            if ($InventoryAll.$Object) {
-                $ObjectWork = $InventoryAll.$Object
+            if ($InventoryAll.$CatItem) {
+                $ObjectWork = $InventoryAll.$CatItem
             }
 
             $ObjectWork += $SubObject
-            try { $InventoryAll.$Object = $ObjectWork } catch {}
+            try { $InventoryAll.$CatItem = $ObjectWork } catch {}
             Clear-Variable SubObject
         }
     }
@@ -180,8 +183,6 @@ function Inventory {
         $InventoryAll.$ObjectName | Export-Excel -Path $XlsFile -WorksheetName $ObjectName -Append -AutoFilter -AutoSize -FreezeTopRow -BoldTopRow -KillExcel
     }
 }
-
-Import-Module ServerEye.Powershell.Helper
 
 if (!$CustomerID) {
     try {
@@ -211,7 +212,8 @@ if (!(Test-Path $Dest)) {
     Write-Host "$Dest nicht gefunden"
 }
 
-$InventoryRoot = $Dest + '\inventory'
+$InventoryRoot = Join-Path -Path $Dest -ChildPath '\inventory'
+
 if (!(Test-Path $InventoryRoot)) {
     New-Item -Path $InventoryRoot -ItemType "directory" | Out-Null
 }
