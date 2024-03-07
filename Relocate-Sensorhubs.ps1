@@ -104,10 +104,38 @@ function SEStop-Services() {
     Log "Making sure all servereye services are stopped..."
     if ($OCCConnector) {
         Stop-Service "SE3Recovery", "CCService", "MACService" -ErrorAction SilentlyContinue
+        $SECCService = Get-Service -Name CCService
+        $SEMACService = Get-Service -Name MACService
+        $SERecovery = Get-Service -Name SE3Recovery
+        while ($SECCService.Status -ne "Stopped" -or $SEMACService.Status -ne "Stopped" -or $SERecovery.Status -ne "Stopped") {
+            Start-Sleep -Seconds 3
+            $SECCService = Get-Service -Name CCService
+            $SEMACService = Get-Service -Name MACService
+            $SERecovery = Get-Service -Name SE3Recovery
+            $i++
+            if ($i -gt 20) {
+                Log "The servereye services couldn't be stopped within 60 seconds, exiting."
+                exit
+            }
+        }
         if ($?) {Log "Stopped all services."}
         else {Log "Services are already stopped."}
     } else {
         Stop-Service "SE3Recovery", "CCService" -ErrorAction SilentlyContinue
+        $SECCService = Get-Service -Name CCService
+        $SEMACService = Get-Service -Name MACService
+        $SERecovery = Get-Service -Name SE3Recovery
+        while ($SECCService.Status -ne "Stopped" -or $SEMACService.Status -ne "Stopped" -or $SERecovery.Status -ne "Stopped") {
+            Start-Sleep -Seconds 3
+            $SECCService = Get-Service -Name CCService
+            $SEMACService = Get-Service -Name MACService
+            $SERecovery = Get-Service -Name SE3Recovery
+            $i++
+            if ($i -gt 20) {
+                Log "The servereye services couldn't be stopped within 60 seconds, exiting."
+                exit
+            }
+        }
         if ($?) {Log "Stopped all services."}
         else {Log "Services are already stopped."}
     }
