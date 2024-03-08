@@ -121,15 +121,12 @@ function SEStop-Services() {
     Log "Making sure all servereye services are stopped..."
     if ($OCCConnector) {
         Stop-Service "SE3Recovery", "CCService", "MACService" -ErrorAction SilentlyContinue
-        SECheck-ForServiceStop
-        if ($?) {Log "Stopped all services."}
-        else {Log "Services are already stopped."}
     } else {
         Stop-Service "SE3Recovery", "CCService" -ErrorAction SilentlyContinue
-        SECheck-ForServiceStop
-        if ($?) {Log "Stopped all services."}
-        else {Log "Services are already stopped."}
     }
+    SECheck-ForServiceStop
+    if ($?) {Log "Stopped all services."}
+    else {Log "Services are already stopped."}
 }
 
 function SEStart-Services() {
