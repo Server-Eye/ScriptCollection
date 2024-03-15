@@ -23,7 +23,12 @@
     Version : 1.1
     
     .EXAMPLE
+    Execute the script for a single customer:
     PS C:\> .\customerinventory-to-excel.ps1 -ApiKey "e5e06dght-o924-4745-9407-4824ec3c5908" -CustomerID "3a8388cc-e09c-76c1-99aa-53f65acd59a8" -Dest "C:\Users\max.mustermann\Documents"
+
+    .EXAMPLE
+    Execute the script for every customer currently managed by the user who's ApiKey is provided:
+    PS C:\> Get-SECustomer -ApiKey "e5e06dght-o924-4745-9407-4824ec3c5908" | ForEach-Object {.\customerinventory-to-excel.ps1 -ApiKey "e5e06dght-o924-4745-9407-4824ec3c5908" -CustomerId $_.CustomerID -Dest "C:\Users\max.mustermann\Documents\"}
 #>
 
 Param (
@@ -180,7 +185,7 @@ function Inventory {
     foreach ($ObjectName in $Worksheets) {
         $CountX++
         Status -Activity "$($CountX)/$($XlsCount) schreibe Daten in Excel: $($Customer.CompanyName).xlsx" -Max $XlsCount -Counter $CountX -Status $ObjectName -Id 2 -ParentId 1
-        $InventoryAll.$ObjectName | Export-Excel -Path $XlsFile -WorksheetName $ObjectName -Append -AutoFilter -AutoSize -FreezeTopRow -BoldTopRow -KillExcel
+        $InventoryAll.$ObjectName | Export-Excel -Path $XlsFile -WorksheetName $ObjectName -Append -AutoFilter -AutoSize -FreezeTopRow -BoldTopRow -KillExcel -NoNumberConversion *
     }
 }
 
