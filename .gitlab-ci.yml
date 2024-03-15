@@ -1,0 +1,8 @@
+image: mcr.microsoft.com/dotnet/sdk:8.0.101-windowsservercore-ltsc2022
+
+
+stages:     
+    - build
+
+include:
+  - 'https://gitlab.server-eye.cloud/servereye/clients/ci-configs/-/raw/main/ps-sign-scripts.gitlab-ci.yml'
