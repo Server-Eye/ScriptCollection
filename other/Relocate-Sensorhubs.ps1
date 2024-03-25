@@ -73,7 +73,7 @@ $CCConfigPath = "$SEInstPath\config\se3_cc.conf"
 $MACConfigPath = "$SEInstPath\config\se3_mac.conf"
 
 #Is the system an OCC-Connector?
-$OCCConnector = Test-Path "$SEInstPath\config\se3_mac.conf"
+$OCCConnector = Test-Path "$MACConfigPath"
 
 #Logfile path
 $Logpath = "$SEinstPath\Relocate-Sensorhubs.log"
