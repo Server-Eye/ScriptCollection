@@ -30,9 +30,7 @@
     Version : 1.1
 
     .EXAMPLE
-    PS C:\> .\Relocate-Sensorhubs.ps1 -customerID 42569786 -parentGuid 4f1kg420-2315-28he-89bc-509s20b25f76 -secretkey 
-    e12ejgcf-d491-9892-bg83-95ka457938c2 -cleanup true
-
+    PS> .\Relocate-Sensorhubs.ps1 -customerID 42569786 -parentGuid 4f1kg420-2315-28he-89bc-509s20b25f76 -secretKey e12ejgcf-d491-9892-bg83-95ka457938c2 -cleanup true
     Replaces the specified entries and deletes ServerEye3 folder in Programdata.
 #>
 
