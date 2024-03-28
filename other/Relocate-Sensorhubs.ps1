@@ -76,7 +76,7 @@ $MACConfigPath = "$SEInstPath\config\se3_mac.conf"
 $OCCConnector = Test-Path "$MACConfigPath"
 
 #Logfile path
-$Logpath = "$SEinstPath\Relocate-Sensorhubs.log"
+$Logpath = "$env:windir\Temp\Relocate-Sensorhubs.log"
 #endregion
 
 #region Function declarations
