@@ -40,9 +40,9 @@ function Reboot-HV {
     $ShutdownList = @()
 
     # Setting up switch case ($False=shutdown,$True=start)
-    $B = Test-Path 'HKLM:\SOFTWARE\ShutdownScript'
+    $boolShutdownScript = Test-Path 'HKLM:\SOFTWARE\ShutdownScript'
 
-    switch ($B) {
+    switch ($boolShutdownScript) {
         $False {
             foreach ($Server in $Servers) {
                 Stop-VM -Name $Server.Name -Force
