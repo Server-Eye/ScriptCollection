@@ -21,7 +21,7 @@
     Execute the script one time to create the .csv file (while making sure no file has been created yet):
     PS C:\> .\Reboot-VMsAndHV-SU.ps1
     Execute the script again after making the neccessary changes to the .csv file. The maximum allowed shutdown time is set to 60 minutes in this example:
-    PS C:\> .\Reboot-VMsAndHV-SU.ps1 -Time 60
+    PS C:\> .\Reboot-VMsAndHV-SU.ps1 -timeInMinutes 60
 #>
 
 Param (
@@ -46,12 +46,10 @@ function Reboot-HV {
         $False {
             foreach ($Server in $Servers) {
                 Stop-VM -Name $Server.Name -Force
-        
-                $i = 0
+                
                 # Loop until VM is off or max shutdown time is reached
-                while ((Get-VM -Name $Server.Name).State -ne "Off" -and $i -lt $timeInMinutes * 4) {
+                for ($i = 0; $i -lt ($timeInMinutes * 4) -and (Get-VM -Name $Server.Name).State -ne "Off"; $i++) {
                     Start-Sleep -Seconds 15
-                    $i++
                 }
 
                 # If VM is off, add it to shutdown list
@@ -105,11 +103,9 @@ function Reboot-HV {
                 # Boot VM
                 Start-VM -Name $Server.Name
 
-                $i = 0
                 # Loop until VM is up or max boot time is reached
-                while ((Get-VM -Name $Server.Name).State -ne "Running" -and $i -lt 61) {
+                for ($i = 0; $i -lt 61 -and (Get-VM -Name $Server.Name).State -ne "Running"; $i++) {
                     Start-Sleep -Seconds 15
-                    $i++
                 }
 
                 # If VM is up, add it to $RunningVMs
@@ -145,7 +141,9 @@ function Check-For-New-VM {
 
     # Name of servers in $Servers
     $ServerNames = @()
-    foreach($N in $Servers){ $ServerNames += $N.Name }
+    foreach($N in $Servers) {
+        $ServerNames += $N.Name
+    }
     
     foreach ($Vm in $Cav) {
         if(!($ServerNames.Contains($Vm))) {
