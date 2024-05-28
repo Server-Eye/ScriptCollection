@@ -34,7 +34,7 @@
     .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation"
     
     .EXAMPLE
-    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation" -categories MICROSOFT
+    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation" -categories -MICROSOFT
     
     .EXAMPLE
     .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation" -ViewfilterName "Name einer Gruppe"
@@ -51,7 +51,7 @@ Param (
     $AuthToken,
     [parameter(ValueFromPipelineByPropertyName, Mandatory = $true)]
     $CustomerId,
-    [Parameter(Mandatory = $false)]
+    [Parameter(Mandatory = $true)]
     $ViewfilterName,
     [Parameter(Mandatory = $false)]
     [ValidateRange(0, 30)]
@@ -65,17 +65,17 @@ Param (
     [Parameter(Mandatory = $false)]
     [ArgumentCompleter(
             {
-                Get-SESUCategories 
+               Get-SESUCategories 
             }
         )]
-    [ValidateScript(
+     $AddCategories,
+      [Parameter(Mandatory = $true)]
+      [ArgumentCompleter(
             {
-                $categories = Get-SESUCategories
-                $_ -in $categories
+               Get-SESUCategories 
             }
         )]
-    $categories,
-	[string[]]$AddCategories
+     $RemoveCategories
 )
 
 function Get-SEViewFilters {
@@ -146,64 +146,99 @@ function Set-SEViewFilterSetting {
         $UpdateDelay,
         $installDelay,
         $downloadStrategy,
-		$addedCategory
+        $addedCategory,
+        $removedCategory
     )
+
     if ($installDelay) {
         $ViewFilterSetting.installWindowInDays = $installDelay
-    }
-    else {
+    } else {
         $ViewFilterSetting.installWindowInDays = $ViewFilterSetting.installWindowInDays
     }
+
     if ($UpdateDelay) {
         $ViewFilterSetting.delayInstallByDays = $UpdateDelay
-    }
-    else {
+    } else {
         $ViewFilterSetting.delayInstallByDays = $ViewFilterSetting.delayInstallByDays
     }
+
     if ($downloadStrategy) {
         $ViewFilterSetting.downloadStrategy = $downloadStrategy
-    }
-    else {
+    } else {
         $ViewFilterSetting.downloadStrategy = $ViewFilterSetting.downloadStrategy
     }
-	
-	  if($addedCategory)
-    {
-    $newSettingList= New-Object System.Collections.Generic.List[PSObject]
-    foreach($cat in $ViewFilterSetting.categories)
-    {
-     $newSettingList.Add($cat)
-    }
-    foreach($paracat in $addedCategory) {
-        $newSettingList.Add([PSCustomObject]@{ id = $paracat})
-    }
-    $ViewFilterSetting.categories=$newSettingList
+
+    if ($addedCategory -or $removeCategory) {
+        $newSettingList = New-Object System.Collections.Generic.List[PSObject]
+
+        foreach ($cat in $ViewFilterSetting.categories) {
+            $newSettingList.Add($cat)
+        }
+
+        foreach ($paracat in $addedCategory) {
+            $containsCatItem = $newSettingList | Where-Object { $_.id -eq $paracat }
+
+            if (! $containsCatItem) {
+                $newSettingList.Add([PSCustomObject]@{ id = $paracat })
+            }
+        }
+
+        foreach ($paracat in $removeCategory) {
+            $containsCatItem = $newSettingList | Where-Object { $_.id -eq $paracat }
+
+            if ($containsCatItem) {
+                $predicate = [Predicate[PSObject]]{
+                    param($item)
+                    $item.id -eq $paracat
+                }
+
+                # Use Out-Null to suppress the Write-Output (output the number of removed items)
+                $newSettingList.RemoveAll($predicate) | Out-Null
+
+
+            }
+        }
+
+        $ViewFilterSetting.categories = $newSettingList
     }
 
-	
-    $body = $ViewFilterSetting | Select-Object -Property installWindowInDays, delayInstallByDays, categories, downloadStrategy, maxScanAgeInDays, enableRebootNotify, maxRebootNotifyIntervalInHours | ConvertTo-Json
+    $body = $ViewFilterSetting |
+        Select-Object -Property installWindowInDays, delayInstallByDays, categories, downloadStrategy, maxScanAgeInDays, enableRebootNotify, maxRebootNotifyIntervalInHours |
+        ConvertTo-Json
 
     $SetCustomerViewFilterSettingURL = "https://pm.server-eye.de/patch/$($ViewFilterSetting.customerId)/viewFilter/$($ViewFilterSetting.vfId)/settings"
-    if ($authtoken -is [string]) {
-        try {
-            Invoke-RestMethod -Uri $SetCustomerViewFilterSettingURL -Method Post -Body $body -ContentType "application/json"  -Headers @{"x-api-key" = $authtoken } | Out-Null
-            Write-Output "Folgende Einstellungen wurden für $($Group.name) gesetzt: Installationsfenster: $($ViewFilterSetting.installWindowInDays) Tage, Update-Verzögerung: $($ViewFilterSetting.delayInstallByDays) Tage, Download-Strategie: $($ViewFilterSetting.downloadStrategy), Hinzugefügte Update-Kategorien: $addCategories"
-        }
-        catch {
-            Write-Error "$_"
-        }
     
-    }
-    else {
+    if ($AuthToken -is [string]) {
         try {
-            Invoke-RestMethod -Uri $SetCustomerViewFilterSettingURL -Method Post -Body $body -ContentType "application/json" -WebSession $authtoken | Out-Null
-            Write-Output "Folgende Einstellungen wurden für $($Group.name) gesetzt: Installationsfenster: $($ViewFilterSetting.installWindowInDays) Tage, Update-Verzögerung: $($ViewFilterSetting.delayInstallByDays) Tage, Download-Strategie: $($ViewFilterSetting.downloadStrategy), Hinzugefügte Update-Kategorien: $addCategories"
+            Invoke-RestMethod -Uri $SetCustomerViewFilterSettingURL -Method Post -Body $body -ContentType "application/json" -Headers @{"x-api-key" = $AuthToken } | Out-Null
+        } catch {
+            Write-Error "$_"
         }
-        catch {
+    } else {
+        try {
+            Invoke-RestMethod -Uri $SetCustomerViewFilterSettingURL -Method Post -Body $body -ContentType "application/json" -WebSession $AuthToken | Out-Null
+        } catch {
             Write-Error "$_"
         }
     }
+
+    $output = @()
+    $output += "Folgende Einstellungen wurden f�r $($Group.name) gesetzt:"
+    $output += "Installationsfenster: $($ViewFilterSetting.installWindowInDays) Tage"
+    $output += "Update-Verz�gerung: $($ViewFilterSetting.delayInstallByDays) Tage"
+    $output += "Download-Strategie: $($ViewFilterSetting.downloadStrategy)"
+
+    if ($addedCategory) {
+        $output += "Hinzugef�gte Update-Kategorien: $addedCategory"
+    }
+
+    if ($removeCategory) {
+        $output += "Entfernte Update-Kategorien: $removeCategory"
+    }
+
+    Write-Output ($output -join ", ")
 }
+
 
 $AuthToken = Test-SEAuth -AuthToken $AuthToken
 
@@ -216,20 +251,16 @@ else {
 
 
 foreach ($Group in $Groups) {
-    Write-Debug "$categories before If"
-    if ($categories) {
-        Write-Debug "$categories in IF"
-        $GroupSettings = Get-SEViewFilterSettings -AuthToken $AuthToken -CustomerID $CustomerID -ViewFilter $Group
-        Write-Debug "$GroupSettings categories"
-    }
-    else {
+   
+  
+   
         $GroupSettings = Get-SEViewFilterSettings -AuthToken $AuthToken -CustomerID $CustomerID -ViewFilter $Group
         Write-Debug "$GroupSettings not categories"
-    }
+    
     
     foreach ($GroupSetting in $GroupSettings) {
 
-        Set-SEViewFilterSetting -AuthToken $AuthToken -ViewFilterSetting $GroupSetting -UpdateDelay $UpdateDelay -installDelay $installDelay -downloadStrategy $downloadStrategy -addedCategory $AddCategories
+        Set-SEViewFilterSetting -AuthToken $AuthToken -ViewFilterSetting $GroupSetting -UpdateDelay $UpdateDelay -installDelay $installDelay -downloadStrategy $downloadStrategy -addedCategory $AddCategories -removedCategory $RemoveCategories
   
     }
 }
