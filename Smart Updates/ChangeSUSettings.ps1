@@ -7,37 +7,40 @@
     Setzt die Einstellungen für die Verzögerung und die Installation Tage im Smart Updates
 
     .PARAMETER CustomerId
-    ID des Kunden bei dem die Einstellungen geändert werden sollen.
+    ID des Kunden bei dem die Einstellungen ge�ndert werden sollen.
 
     .PARAMETER ViewfilterName
-    Name der Gruppe die geändert werden soll
+    Name der Gruppe die ge�ndert werden soll
 
     .PARAMETER UpdateDelay
-    Tage für die Update Verzögerung.
+    Tage f�r die Verz�gerung.
 
     .PARAMETER installDelay
-    Tage für die Installation
+    Tage f�r die Installation
 
     .PARAMETER categories
     Kategorie die in einer Gruppe enthalten sein soll
 	
 	.PARAMETER downloadStrategy
-    Setzt das Download Verhalten auf "FILEDEPOT_ONLY" (Ausschließlich über FileDepot downloaden), "FILEDEPOT_AND_DIRECT" (Hauptsächlich über das FileDepott downloaden, ansonsten über direktem Weg), "DIRECT_ONLY" (Ausschließlich über direktem Weg downloaden ohne FileDepot)
+    Setzt das Download Verhalten auf "FILEDEPOT_ONLY" (Ausschließlich über FileDepot downloaden), "FILEDEPOT_AND_DIRECT" (Hauptsächlich über das FileDepott downloaden, ansonsten über direktem Weg), "DIRECT_ONLY" (Ausschlie�lich �ber direktem Weg downloaden ohne FileDepot)
     
     .PARAMETER AuthToken
     Nutzt die Session oder einen ApiKey. Wenn der Parameter nicht gesetzt ist wird die globale Server-Eye Session genutzt.
 	
 	.PARAMETER AddCategories
-    Kategorien die hinzugefügt werden sollen.
+    Kategorien die hinzugef�gt werden sollen.
+
+    .PARAMETER RemoveCategories
+    Kategorien die abgew�hlt werden sollen.
 
     .EXAMPLE 
-    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation"
+    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage f�r die Verz�gerung" -installDelay "Tage für die Installation"
     
     .EXAMPLE
-    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation" -categories -MICROSOFT
+    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage f�r die Verz�gerung" -installDelay "Tage für die Installation" -AddCategories MICROSOFT -RemoveCategories EDGE
     
     .EXAMPLE
-    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation" -ViewfilterName "Name einer Gruppe"
+    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage f�r die Verz�gerung" -installDelay "Tage für die Installation" -ViewfilterName "Name einer Gruppe"
     
     .EXAMPLE 
     Get-SECustomer -AuthToken $authtoken| %{.\ChangeSUSettings.ps1 -AuthToken $authtoken -CustomerId $_.CustomerID -ViewfilterName "ThirdParty Server" -UpdateDelay 30 -installDelay 7}
@@ -51,7 +54,7 @@ Param (
     $AuthToken,
     [parameter(ValueFromPipelineByPropertyName, Mandatory = $true)]
     $CustomerId,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     $ViewfilterName,
     [Parameter(Mandatory = $false)]
     [ValidateRange(0, 30)]
@@ -69,8 +72,8 @@ Param (
             }
         )]
      $AddCategories,
-      [Parameter(Mandatory = $true)]
-      [ArgumentCompleter(
+    [Parameter(Mandatory = $false)]
+    [ArgumentCompleter(
             {
                Get-SESUCategories 
             }
