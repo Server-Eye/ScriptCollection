@@ -27,14 +27,17 @@
     .PARAMETER AuthToken
     Nutzt die Session oder einen ApiKey. Wenn der Parameter nicht gesetzt ist wird die globale Server-Eye Session genutzt.
 	
-	.PARAMETER AddCategories
+	.PARAMETER AddCategory
+    Kategorien die hinzugefügt werden sollen.
+	
+	.PARAMETER RemoveCategory
     Kategorien die hinzugefügt werden sollen.
 
     .EXAMPLE 
     .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation"
     
     .EXAMPLE
-    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation" -categories -MICROSOFT
+    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation" -AddCategories JABRA_DIRECT -RemoveCategories EDGE
     
     .EXAMPLE
     .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation" -ViewfilterName "Name einer Gruppe"
@@ -51,7 +54,7 @@ Param (
     $AuthToken,
     [parameter(ValueFromPipelineByPropertyName, Mandatory = $true)]
     $CustomerId,
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     $ViewfilterName,
     [Parameter(Mandatory = $false)]
     [ValidateRange(0, 30)]
@@ -69,8 +72,8 @@ Param (
             }
         )]
      $AddCategories,
-      [Parameter(Mandatory = $true)]
-      [ArgumentCompleter(
+    [Parameter(Mandatory = $false)]
+    [ArgumentCompleter(
             {
                Get-SESUCategories 
             }
@@ -146,8 +149,8 @@ function Set-SEViewFilterSetting {
         $UpdateDelay,
         $installDelay,
         $downloadStrategy,
-        $addedCategory,
-        $removedCategory
+        $addedCategories,
+        $removedCategories
     )
 
     if ($installDelay) {
@@ -168,14 +171,14 @@ function Set-SEViewFilterSetting {
         $ViewFilterSetting.downloadStrategy = $ViewFilterSetting.downloadStrategy
     }
 
-    if ($addedCategory -or $removeCategory) {
+    if ($addedCategories -or $removedCategories) {
         $newSettingList = New-Object System.Collections.Generic.List[PSObject]
 
         foreach ($cat in $ViewFilterSetting.categories) {
             $newSettingList.Add($cat)
         }
 
-        foreach ($paracat in $addedCategory) {
+        foreach ($paracat in $addedCategories) {
             $containsCatItem = $newSettingList | Where-Object { $_.id -eq $paracat }
 
             if (! $containsCatItem) {
@@ -183,7 +186,7 @@ function Set-SEViewFilterSetting {
             }
         }
 
-        foreach ($paracat in $removeCategory) {
+        foreach ($paracat in $removedCategories) {
             $containsCatItem = $newSettingList | Where-Object { $_.id -eq $paracat }
 
             if ($containsCatItem) {
@@ -223,17 +226,17 @@ function Set-SEViewFilterSetting {
     }
 
     $output = @()
-    $output += "Folgende Einstellungen wurden f�r $($Group.name) gesetzt:"
+    $output += "Folgende Einstellungen wurden für $($Group.name) gesetzt:"
     $output += "Installationsfenster: $($ViewFilterSetting.installWindowInDays) Tage"
-    $output += "Update-Verz�gerung: $($ViewFilterSetting.delayInstallByDays) Tage"
+    $output += "Update-Verzögerung: $($ViewFilterSetting.delayInstallByDays) Tage"
     $output += "Download-Strategie: $($ViewFilterSetting.downloadStrategy)"
 
-    if ($addedCategory) {
-        $output += "Hinzugef�gte Update-Kategorien: $addedCategory"
+    if ($addedCategories) {
+        $output += "Hinzugefügte Update-Kategorien: $addedCategories"
     }
 
-    if ($removeCategory) {
-        $output += "Entfernte Update-Kategorien: $removeCategory"
+    if ($removedCategories) {
+        $output += "Entfernte Update-Kategorien: $removedCategories"
     }
 
     Write-Output ($output -join ", ")
@@ -260,7 +263,7 @@ foreach ($Group in $Groups) {
     
     foreach ($GroupSetting in $GroupSettings) {
 
-        Set-SEViewFilterSetting -AuthToken $AuthToken -ViewFilterSetting $GroupSetting -UpdateDelay $UpdateDelay -installDelay $installDelay -downloadStrategy $downloadStrategy -addedCategory $AddCategories -removedCategory $RemoveCategories
+        Set-SEViewFilterSetting -AuthToken $AuthToken -ViewFilterSetting $GroupSetting -UpdateDelay $UpdateDelay -installDelay $installDelay -downloadStrategy $downloadStrategy -addedCategories $AddCategories -removedCategories $RemoveCategories
   
     }
 }
