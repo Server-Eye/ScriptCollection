@@ -27,8 +27,8 @@ param (
     $Edge
 )
 
-if (Test-Path "$env:SystemDrive\ProgramData\ServerEye3\logs") {
-    $LogPath = "$env:SystemDrive\ProgramData\ServerEye3\logs\Update-ChromeAndEdge.log"
+if (Test-Path "$env:ProgramData\ServerEye3\logs") {
+    $LogPath = "$env:ProgramData\ServerEye3\logs\Update-ChromeAndEdge.log"
 } else {
     $LogPath = "$env:windir\Temp\Update-ChromeAndEdge.log"
 }
@@ -40,16 +40,8 @@ function Log {
     Add-Content "$LogPath" -Value $LogMessage -ErrorAction Stop
 }
 
-$IsChromeInstalled = Test-Path -Path "$env:SystemDrive\Program Files\Google\Chrome\Application\chrome.exe", "$env:SystemDrive\Program Files (x86)\Google\Chrome\Application\chrome.exe"
-$IsEdgeInstalled = Get-ItemProperty "HKLM:SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" | Select-Object DisplayName | Where-Object { $_.DisplayName -like "*Edge*" }
-
-$EdgeUpdaterDownloadURL = "https://cloud.server-eye.de/s/MSEdgeUpdater/download/MicrosoftEdgeUpdate.exe"
-
-if (Test-Path -Path "C:\Program Files (x86)\Microsoft\EdgeUpdate") {
-    $EdgeUpdaterPath = "C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe"
-} elseif (Test-Path -Path "C:\Program Files\Microsoft\EdgeUpdate") {
-    $EdgeUpdaterPath = "C:\Program Files\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe"
-}
+$IsChromeInstalled = Test-Path -Path "$Env:Programfiles\Google\Chrome\Application\chrome.exe", "${Env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
+$EdgeInstallations = Get-ItemProperty "HKLM:SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" | Select-Object DisplayName | Where-Object { $_.DisplayName -like "*Edge*" }
 
 Log "Starting Update-ChromeAndEdge script..."
 if ($Chrome) {
@@ -102,7 +94,17 @@ if ($Chrome) {
 }
 
 if ($Edge) {
+    $EdgeUpdaterDownloadURL = "https://cloud.server-eye.de/s/MSEdgeUpdater/download/MicrosoftEdgeUpdate.exe"
+    $EdgeUpdatePathx64 = "$Env:Programfiles\Microsoft\EdgeUpdate"
+    $EdgeUpdatePathx86 = "${Env:ProgramFiles(x86)}\Microsoft\EdgeUpdate"
+
     if ($IsEdgeInstalled) {
+        if (Test-Path -Path $EdgeUpdaterPathx64) {
+            $EdgeUpdaterPath = "$EdgeUpdatePathx64\MicrosoftEdgeUpdate.exe"
+        } else {
+            $EdgeUpdaterPath = "$EdgeUpdatePathx86\MicrosoftEdgeUpdate.exe"
+        }
+
         try {
             Log "Starting Edge Updater..."
             if (Test-Path $EdgeUpdaterPath) {
