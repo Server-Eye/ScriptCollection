@@ -98,8 +98,8 @@ if ($Edge) {
     $EdgeUpdatePathx64 = "$Env:Programfiles\Microsoft\EdgeUpdate"
     $EdgeUpdatePathx86 = "${Env:ProgramFiles(x86)}\Microsoft\EdgeUpdate"
 
-    if ($IsEdgeInstalled) {
-        if (Test-Path -Path $EdgeUpdaterPathx64) {
+    if ($EdgeInstallations) {
+        if (Test-Path -Path $EdgeUpdatePathx64) {
             $EdgeUpdaterPath = "$EdgeUpdatePathx64\MicrosoftEdgeUpdate.exe"
         } else {
             $EdgeUpdaterPath = "$EdgeUpdatePathx86\MicrosoftEdgeUpdate.exe"
@@ -138,8 +138,7 @@ if ($Edge) {
         }
         try {
             Log "Starting Edge Updater for the second run..."
-            Start-Process -FilePath "C:\Program Files (x86)\Microsoft\EdgeUpdate\MicrosoftEdgeUpdate.exe" `
-            -argumentlist "/silent /install appguid={56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}&appname=Microsoft%20Edge&needsadmin=True" -ErrorAction Stop
+            Start-Process -FilePath $EdgeUpdaterPath ` -argumentlist "/silent /install appguid={56EB18F8-B008-4CBD-B6D2-8C97FE7E9062}&appname=Microsoft%20Edge&needsadmin=True" -ErrorAction Stop
             Log "Edge Updater finished successfully."
         } catch {
             Log "Error starting Edge installer. Error: $_"
