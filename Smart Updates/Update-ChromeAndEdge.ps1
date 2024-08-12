@@ -4,17 +4,17 @@
     Update Edge and Chrome browsers to latest version
  
     .DESCRIPTION
-    The script forces an update of the Chrome and Edge browsers
+    The script forces an update of the Chrome and Edge browsers. If no Parameters are passed, both Chrome and Edge will be updated.
 
     .PARAMETER Chrome
-    If set, the script will check if Chrome is installed and update it
+    Optional: If set, only Chrome will be updated
 
     .PARAMETER Edge
-    If set, the script will check if Edge is installed and update it
+    Optional: If set, only Edge will be updated
        
     .NOTES
     Author  : Krämer IT Solutions GmbH / servereye
-    Version : 1.1
+    Version : 1.2
 #>
 
 [CmdletBinding()]
@@ -26,6 +26,12 @@ param (
     [string]
     $Edge
 )
+
+if (-not [string]::IsNullOrEmpty($Chrome) -or -not [string]::IsNullOrEmpty($Edge)) {
+    $AreParametersPassed = $true
+} else {
+    $AreParametersPassed = $false
+}
 
 if (Test-Path "$env:ProgramData\ServerEye3\logs") {
     $LogPath = "$env:ProgramData\ServerEye3\logs\Update-ChromeAndEdge.log"
@@ -44,7 +50,7 @@ $IsChromeInstalled = Test-Path -Path "$Env:Programfiles\Google\Chrome\Applicatio
 $EdgeInstallations = Get-ItemProperty "HKLM:SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" | Select-Object DisplayName | Where-Object { $_.DisplayName -like "*Edge*" }
 
 Log "Starting Update-ChromeAndEdge script..."
-if ($Chrome) {
+if ($Chrome -or $AreParametersPassed -eq $false) {
     Log "Checking if Chrome is installed..."
     if ($IsChromeInstalled -contains $true) {
         Log "Chrome is installed. Looking for registry key..."
@@ -93,7 +99,7 @@ if ($Chrome) {
     }
 }
 
-if ($Edge) {
+if ($Edge -or $AreParametersPassed -eq $false) {
     $EdgeUpdaterDownloadURL = "https://cloud.server-eye.de/s/MSEdgeUpdater/download/MicrosoftEdgeUpdate.exe"
     $EdgeUpdatePathx64 = "$Env:Programfiles\Microsoft\EdgeUpdate"
     $EdgeUpdatePathx86 = "${Env:ProgramFiles(x86)}\Microsoft\EdgeUpdate"
@@ -147,10 +153,6 @@ if ($Edge) {
     } else {
         Log "Edge is not installed."
     }
-}
-
-if (-not $Chrome -and -not $Edge) {
-    Log "Nothing was done since neither Chrome nor Edge were passed as parameters."
 }
 
 Log "Finished Update-ChromeAndEdge script."
