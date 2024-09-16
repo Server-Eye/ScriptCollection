@@ -18,6 +18,7 @@ The authtoken (apikey) to connect to the servereye API.
 If this parameter is set, the script will check if the system is Windows 11 ready and set a tag on the Sensorhub accordingly.
 
 .PARAMETER DoExcelExport
+This parameter should only be used locally on your system.
 If this parameter is set, the script will export a list of all systems with either the Win11Ready or NotWin11Ready tags to an Excel file.
 
 .NOTES
@@ -26,8 +27,8 @@ Version : 1.0
 #>
 
 Param(
-    [Alias("ApiKey")]
     [Parameter(Mandatory = $true)]
+    [Alias("ApiKey")]
     [string]
     $AuthToken,
     [Parameter(Mandatory = $false)]
@@ -41,7 +42,7 @@ Param(
     $Path
 )
 
-$LogPath = "$env:systemdrive\ProgramData\ServerEye3\logs\Check-Win11Readiness.log"
+$LogPath = "$env:ProgramData\ServerEye3\logs\Check-Win11Readiness.log"
 function Log {
     Param ([string]$LogString)
     $Stamp = (Get-Date).toString("yyyy/MM/dd HH:mm:ss")
