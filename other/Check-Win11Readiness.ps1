@@ -68,19 +68,31 @@ Log "Starting Check-Win11Readiness script"
 try {
     Log "Installing and importing needed modules"
     Install-PackageProvider -Name NuGet -Confirm:$false -Force -ErrorAction SilentlyContinue
+    # Install and import ServerEye.Powershell.Helper module
     if (-not (Get-InstalledModule -Name "ServerEye.Powershell.Helper")) {
         Install-Module -Name ServerEye.Powershell.Helper -Confirm:$false -Force -ErrorAction Stop
-        Import-Module -Name ServerEye.Powershell.Helper -Force -ErrorAction Stop
-        Log "Imported ServerEye.Powershell.Helper module"
+        Log "Installed ServerEye.Powershell.Helper module"
     } else {
         Log "ServerEye.Powershell.Helper module is already installed"
     }
+    if (-not (Get-Module -Name "ServerEye.Powershell.Helper")) {
+        Import-Module -Name ServerEye.Powershell.Helper -Force -ErrorAction Stop
+        Log "Imported ServerEye.Powershell.Helper module"
+    } else {
+        Log "ServerEye.Powershell.Helper module is already imported"
+    }
+    # Install and import ImportExcel module
     if (-not (Get-InstalledModule -Name "ImportExcel")) {
         Install-Module -Name ImportExcel -Confirm:$false -Force -ErrorAction Stop
+        Log "Installed ImportExcel module"
+    } else {
+        Log "ImportExcel module is already installed"
+    }
+    if (-not (Get-Module -Name "ImportExcel")) {
         Import-Module -Name ImportExcel -Force -ErrorAction Stop
         Log "Imported ImportExcel module"
     } else {
-        Log "ImportExcel module is already installed"
+        Log "ImportExcel module is already imported"
     }
 } catch {
     Log "Failed to install or import needed modules. Error: $_"
