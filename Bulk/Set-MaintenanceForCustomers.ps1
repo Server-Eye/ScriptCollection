@@ -77,7 +77,7 @@ Process {
         }
     } else {
         try {
-            Invoke-RestMethod -Method 'Post' -Uri "https://api.server-eye.de/3/customer/$CustomerId/maintenance/disable" -Headers $headers -ContentType "application/json" | Out-Null
+            Invoke-RestMethod -Method 'Post' -Uri "https://api.server-eye.de/3/customer/$CustomerId/maintenance/disable" -Headers $headers -ContentType "application/json" -ErrorAction Stop | Out-Null
             Write-Host "Maintenance mode has been disabled for customer '$($input.Name)'"
         }
         catch {
