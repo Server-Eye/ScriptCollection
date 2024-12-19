@@ -15,6 +15,7 @@ This parameter is mandatory and should be provided by the pipeline.
 
 .PARAMETER Duration
 The duration in hours for which maintenance mode should be enabled.
+24 hours is the maximum duration.
 
 .PARAMETER Disable
 Use this switch to disable maintenance mode for the specified customers instead of enabling it.
@@ -23,12 +24,12 @@ Use this switch to disable maintenance mode for the specified customers instead 
 The users ApiKey to authenticate with the servereye API.
 
 .EXAMPLE
-Enable maintenance mode for all customers for 2 hours
-Get-SECustomer | .\Set-MaintenanceForCustomers.ps1 -ApiKey "ApiKey" -Duration 2
+Enable maintenance mode for a list of specific customers
+PS> Get-SECustomer | Where-Object Name -in "Kunde1", "Kunde2", "Kunde3" | .\Set-MaintenanceForCustomers.ps1 -ApiKey "ApiKey" -Duration 2
 
 .EXAMPLE
 Disable maintenance mode for all customers
-Get-SECustomer | .\Set-MaintenanceForCustomers.ps1 -ApiKey "ApiKey" -Disable
+PS> Get-SECustomer | .\Set-MaintenanceForCustomers.ps1 -ApiKey "ApiKey" -Disable
 
 .NOTES
 Author  : servereye
@@ -41,6 +42,7 @@ Param
     [Parameter(Mandatory = $true, ValueFromPipelineByPropertyName)]
     [string]$CustomerId,
     [Parameter(Mandatory = $false)]
+    [ValidateRange(1, 24)]
     [int]$Duration,
     [Parameter(Mandatory = $false)]
     [switch]$Disable,
@@ -73,7 +75,15 @@ Process {
             Write-Host "Maintenance mode has been enabled for customer '$($input.Name)'"
         }
         catch {
-            Write-Host "Maintenance mode is already enabled for customer '$($input.Name)'" -ForegroundColor Yellow
+            $statuscode = $_.Exception.Response.StatusCode.value__
+            if ($statuscode -eq 400) {
+                Write-Host "Maintenance mode is already enabled for customer '$($input.Name)'" -ForegroundColor Yellow
+                return
+            } else {
+                Write-Host "An error occurred while enabling maintenance mode for customer '$($input.Name)':" -ForegroundColor Red
+                Write-Host $_.Exception.Message -ForegroundColor Red
+                return
+            }
         }
     } else {
         try {
@@ -81,7 +91,15 @@ Process {
             Write-Host "Maintenance mode has been disabled for customer '$($input.Name)'"
         }
         catch {
-            Write-Host "Maintenance mode is already disabled for customer '$($input.Name)'" -ForegroundColor Yellow
+            $statuscode = $_.Exception.Response.StatusCode.value__
+            if ($statuscode -eq 500) {
+                Write-Host "Maintenance mode is already disabled for customer '$($input.Name)'" -ForegroundColor Yellow
+                return
+            } else {
+                Write-Host "An error occurred while disabling maintenance mode for customer '$($input.Name)':" -ForegroundColor Red
+                Write-Host $_.Exception.Message -ForegroundColor Red
+                return
+            }
         }
     }
 }
