@@ -12,7 +12,7 @@
     .PARAMETER All
     Rename the Sensorhubs of all customers. If the parameter CustomerName is specified, this parameter is ignored.
 
-    .PARAMETER Tag
+    .PARAMETER ExcludeTag
     If a Sensorhub has this tag, it will not be renamed. If not specified, all Sensorhubs will be renamed.
 
     .PARAMETER Force
@@ -26,7 +26,7 @@
     Version : 1.0
 
     .EXAMPLE
-    PS> .\Rename-SensorhubsToHostname.ps1 -All -Tag "Server" -AuthToken "AuthToken"
+    PS> .\Rename-SensorhubsToHostname.ps1 -CustomerName "servereye Helpdesk" -Tag "Server" -AuthToken "AuthToken"
     Renames all Sensorhubs of the customer "servereye Helpdesk" that do not have the tag "Server" to the current hostname.
 
     .EXAMPLE
@@ -46,7 +46,7 @@ Param (
 
     [Parameter(Mandatory = $false)]
     [string]
-    $Tag,
+    $ExcludeTag,
 
     [Parameter(Mandatory = $false)]
     [switch]
@@ -84,8 +84,8 @@ if ($CustomerName) {
 
 foreach ($container in $containers) {
     # Move onto the next container if this one has the specified tag
-    if ($container.tags.name -contains $Tag) {
-        Write-Host "Sensorhub '$($container.name)' has tag '$Tag', continuing to next one" -ForegroundColor Yellow
+    if ($container.tags.name -contains $ExcludeTag) {
+        Write-Host "Sensorhub '$($container.name)' has tag '$ExcludeTag', continuing to next one" -ForegroundColor Yellow
         continue
     }
     # Get the hostname of the container so we can compare it to the name of the current container
