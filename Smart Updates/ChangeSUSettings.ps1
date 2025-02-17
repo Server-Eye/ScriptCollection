@@ -1,70 +1,104 @@
 #Requires -Module ServerEye.PowerShell.Helper
 <#
     .SYNOPSIS
-    Setzt die Einstellungen für die Verzögerung und die Installation Tage im Smart Updates
+    Dieses Skript setzt Einstellungen fuer Smart Updates Gruppen
     
     .DESCRIPTION
-    Setzt die Einstellungen für die Verzögerung und die Installation Tage im Smart Updates
+    Mit diesem Skript koennen pro Kunde oder kundenuebergreifend Einstellungen fuer Smart Updates Gruppen gesetzt werden.
+    Unterstuetzt werden alle Einstellungen, die sich im OCC taetigen lassen.
+    Weitere Infos: https://servereye.freshdesk.com/support/solutions/articles/14000115738-anleitung-smart-updates-gruppeneinstellungen-in-masse-definieren
+
+    .PARAMETER AuthToken
+    Nutzt die Session oder einen ApiKey. Wenn der Parameter nicht gesetzt ist wird die globale servereye Session genutzt.
 
     .PARAMETER CustomerId
-    ID des Kunden bei dem die Einstellungen geändert werden sollen.
+    Die Kunden ID des Kunden, bei dem die Einstellungen geaendert werden sollen. Hier koennen auch mehrere Kunden mitgegeben werden, indem Get-SECustomer an das Skript gepiped wird.
 
-    .PARAMETER ViewfilterName
-    Name der Gruppe die geändert werden soll
+    .PARAMETER ViewFilterName
+    Der Name der Gruppe, die angepasst werden soll.
 
-    .PARAMETER UpdateDelay
-    Tage für die Update Verzögerung.
+    .PARAMETER DelayInstallByDays
+    Dauer, um die die Installation von Updates verzoegert wird. Massgeblich ist der Tag, an dem das Update veroeffentlicht wurde.
 
-    .PARAMETER installDelay
-    Tage für die Installation
+    .PARAMETER InstallWindowInDays
+    Zeitraum fuer die Installation, bevor ein Alarm ausgeloest wird.
 
-    .PARAMETER categories
-    Kategorie die in einer Gruppe enthalten sein soll
-	
-	.PARAMETER downloadStrategy
-    Setzt das Download Verhalten auf "FILEDEPOT_ONLY" (Ausschließlich über FileDepot downloaden), "FILEDEPOT_AND_DIRECT" (Hauptsächlich über das FileDepott downloaden, ansonsten über direktem Weg), "DIRECT_ONLY" (Ausschließlich über direktem Weg downloaden ohne FileDepot)
-    
-    .PARAMETER AuthToken
-    Nutzt die Session oder einen ApiKey. Wenn der Parameter nicht gesetzt ist wird die globale Server-Eye Session genutzt.
-	
-	.PARAMETER AddCategory
-    Kategorien die hinzugefügt werden sollen.
-	
-	.PARAMETER RemoveCategory
-    Kategorien die hinzugefügt werden sollen.
+    .PARAMETER EnableRebootNotify
+    Bei ausstehenden Updates wird dem Benutzer ein Hinweis auf einen erforderlichen Neustart des Systems angezeigt.
 
-    .EXAMPLE 
-    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation"
+    .PARAMETER MaxRebootNotifyIntervalInHours
+    Stunden bis dem Benutzer der Hinweis erneut angezeigt wird.
+
+    .PARAMETER DelayRebootNotifyByDays
+    Zeitraum in dem der Benutzer auf einen Systemneustart hingewiesen wird, bevor ein Alarm ausgeloest wird. Das Abbrechen der Installation ist dann nicht mehr moeglich.
+
+    .PARAMETER MaxScanAgeInDays
+    Ab wie vielen Tagen ohne Scan moechtest du einen Alarm?
+
+    .PARAMETER DownloadStrategy
+    Waehle aus ueber welche Wege die Updates heruntergeladen werden duerfen:
+    "FILEDEPOT_ONLY" (Ausschliesslich ueber das FileDepot downloaden),
+    "FILEDEPOT_AND_DIRECT" (Primaer ueber das FileDepot downloaden, als Fallback ueber den direkten Weg),
+    "DIRECT_ONLY" (Ausschliesslich ueber den direkten Weg downloaden ohne FileDepot)
+
+    .PARAMETER AddCategories
+    Update Kategorien die hinzugefuegt werden sollen.
+
+    .PARAMETER RemoveCategories
+    Update Kategorien die entfernt werden sollen.
+
+    .EXAMPLE
+    PS> .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -DelayInstallByDays "Tage fuer die Verzoegerung" -InstallWindowInDays "Tage fuer die Installation"
     
     .EXAMPLE
-    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation" -AddCategories JABRA_DIRECT -RemoveCategories EDGE
+    PS> .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -DelayInstallByDays "Tage fuer die Verzoegerung" -InstallWindowInDays "Tage fuer die Installation" -AddCategories JABRA_DIRECT -RemoveCategories EDGE
     
     .EXAMPLE
-    .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -UpdateDelay "Tage für die Verzögerung" -installDelay "Tage für die Installation" -ViewfilterName "Name einer Gruppe"
+    PS> .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -DelayInstallByDays "Tage fuer die Verzoegerung" -InstallWindowInDays "Tage fuer die Installation" -ViewfilterName "Name einer Gruppe"
     
-    .EXAMPLE 
-    Get-SECustomer -AuthToken $authtoken| %{.\ChangeSUSettings.ps1 -AuthToken $authtoken -CustomerId $_.CustomerID -ViewfilterName "ThirdParty Server" -UpdateDelay 30 -installDelay 7}
+    .EXAMPLE
+    PS> .\Get-SECustomer -AuthToken "ApiKey" | ForEach-Object {.\ChangeSUSettings.ps1 -AuthToken $authtoken -CustomerId $_.CustomerID -ViewfilterName "Name einer Gruppe" -DelayInstallByDays 30 -InstallWindowInDays 7}
 #>
-
-
 
 Param ( 
     [Parameter(Mandatory = $true)]
     [alias("ApiKey", "Session")]
     $AuthToken,
+
     [parameter(ValueFromPipelineByPropertyName, Mandatory = $true)]
     $CustomerId,
+
     [Parameter(Mandatory = $false)]
-    $ViewfilterName,
+    $ViewFilterName,
+
     [Parameter(Mandatory = $false)]
-    [ValidateRange(0, 30)]
-    $UpdateDelay,
+    [ValidateRange(0, 60)]
+    $DelayInstallByDays,
+
     [Parameter(Mandatory = $false)]
     [ValidateRange(1, 60)]
-    $installDelay,
+    $InstallWindowInDays,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("true", "false")]
+    $EnableRebootNotify,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateRange(1, 24)]
+    $MaxRebootNotifyIntervalInHours,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateRange(1, 60)]
+    $DelayRebootNotifyByDays,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateRange(2, 6)]
+    $MaxScanAgeInDays,
+
     [Parameter(Mandatory = $false)]
     [ValidateSet("FILEDEPOT_ONLY", "FILEDEPOT_AND_DIRECT", "DIRECT_ONLY")]
-    $downloadStrategy,
+    $DownloadStrategy,
+
     [Parameter(Mandatory = $false)]
     [ArgumentCompleter(
             {
@@ -72,6 +106,7 @@ Param (
             }
         )]
      $AddCategories,
+
     [Parameter(Mandatory = $false)]
     [ArgumentCompleter(
             {
@@ -146,39 +181,74 @@ function Set-SEViewFilterSetting {
     param (
         $AuthToken,
         $ViewFilterSetting,
-        $UpdateDelay,
-        $installDelay,
-        $downloadStrategy,
-        $addedCategories,
-        $removedCategories
+        $DelayInstallByDays,
+        $InstallWindowInDays,
+        $DelayRebootNotifyByDays,
+        $DownloadStrategy,
+        $AddedCategories,
+        $RemovedCategories,
+        $MaxScanAgeInDays,
+        $EnableRebootNotify,
+        $MaxRebootNotifyIntervalInHours
     )
 
-    if ($installDelay) {
-        $ViewFilterSetting.installWindowInDays = $installDelay
+    if ($InstallWindowInDays) {
+        $ViewFilterSetting.installWindowInDays = $InstallWindowInDays
     } else {
         $ViewFilterSetting.installWindowInDays = $ViewFilterSetting.installWindowInDays
     }
 
-    if ($UpdateDelay) {
-        $ViewFilterSetting.delayInstallByDays = $UpdateDelay
+    if ($DelayInstallByDays) {
+        $ViewFilterSetting.delayInstallByDays = $DelayInstallByDays
     } else {
         $ViewFilterSetting.delayInstallByDays = $ViewFilterSetting.delayInstallByDays
     }
 
-    if ($downloadStrategy) {
-        $ViewFilterSetting.downloadStrategy = $downloadStrategy
+    if ($MaxScanAgeInDays) {
+        $ViewFilterSetting.maxScanAgeInDays = $MaxScanAgeInDays
+    } else {
+        $ViewFilterSetting.maxScanAgeInDays = $ViewFilterSetting.maxScanAgeInDays
+    }
+    
+    if ($EnableRebootNotify) {
+        # We need to convert the string to a boolean
+        if ($EnableRebootNotify -eq "true") {
+            $EnableRebootNotify = $true
+        } elseif ($EnableRebootNotify -eq "false") {
+            $EnableRebootNotify = $false
+        }
+        $ViewFilterSetting.enableRebootNotify = $EnableRebootNotify
+    } else {
+        $ViewFilterSetting.enableRebootNotify = $ViewFilterSetting.enableRebootNotify
+    }
+
+    if ($MaxRebootNotifyIntervalInHours) {
+        $ViewFilterSetting.maxRebootNotifyIntervalInHours = $MaxRebootNotifyIntervalInHours
+    } else {
+        $ViewFilterSetting.maxRebootNotifyIntervalInHours = $ViewFilterSetting.maxRebootNotifyIntervalInHours
+    }
+
+    if ($DelayRebootNotifyByDays) {
+        # We need to calculate this value because of what the backend expects
+        $ViewFilterSetting.delayRebootNotifyByDays = $ViewFilterSetting.installWindowInDays - $DelayRebootNotifyByDays
+    } else {
+        $ViewFilterSetting.delayRebootNotifyByDays = $ViewFilterSetting.delayRebootNotifyByDays
+    }
+
+    if ($DownloadStrategy) {
+        $ViewFilterSetting.downloadStrategy = $DownloadStrategy
     } else {
         $ViewFilterSetting.downloadStrategy = $ViewFilterSetting.downloadStrategy
     }
 
-    if ($addedCategories -or $removedCategories) {
+    if ($AddedCategories -or $RemovedCategories) {
         $newSettingList = New-Object System.Collections.Generic.List[PSObject]
 
         foreach ($cat in $ViewFilterSetting.categories) {
             $newSettingList.Add($cat)
         }
 
-        foreach ($paracat in $addedCategories) {
+        foreach ($paracat in $AddedCategories) {
             $containsCatItem = $newSettingList | Where-Object { $_.id -eq $paracat }
 
             if (! $containsCatItem) {
@@ -186,19 +256,15 @@ function Set-SEViewFilterSetting {
             }
         }
 
-        foreach ($paracat in $removedCategories) {
+        foreach ($paracat in $RemovedCategories) {
             $containsCatItem = $newSettingList | Where-Object { $_.id -eq $paracat }
 
             if ($containsCatItem) {
-                $predicate = [Predicate[PSObject]]{
+                $predicate = [Predicate[PSObject]] {
                     param($item)
                     $item.id -eq $paracat
                 }
-
-                # Use Out-Null to suppress the Write-Output (output the number of removed items)
                 $newSettingList.RemoveAll($predicate) | Out-Null
-
-
             }
         }
 
@@ -206,7 +272,7 @@ function Set-SEViewFilterSetting {
     }
 
     $body = $ViewFilterSetting |
-        Select-Object -Property installWindowInDays, delayInstallByDays, categories, downloadStrategy, maxScanAgeInDays, enableRebootNotify, maxRebootNotifyIntervalInHours |
+        Select-Object -Property installWindowInDays, delayInstallByDays, categories, downloadStrategy, maxScanAgeInDays, enableRebootNotify, maxRebootNotifyIntervalInHours, delayRebootNotifyByDays |
         ConvertTo-Json
 
     $SetCustomerViewFilterSettingURL = "https://pm.server-eye.de/patch/$($ViewFilterSetting.customerId)/viewFilter/$($ViewFilterSetting.vfId)/settings"
@@ -225,46 +291,40 @@ function Set-SEViewFilterSetting {
         }
     }
 
-    $output = @()
-    $output += "Folgende Einstellungen wurden für $($Group.name) gesetzt:"
-    $output += "Installationsfenster: $($ViewFilterSetting.installWindowInDays) Tage"
-    $output += "Update-Verzögerung: $($ViewFilterSetting.delayInstallByDays) Tage"
-    $output += "Download-Strategie: $($ViewFilterSetting.downloadStrategy)"
+    Write-Host "Kunde: $((Get-SeApiCustomer -AuthToken $AuthToken -CId $CustomerId).companyName)" -ForegroundColor Green
+    Write-Host "Folgende Einstellungen wurden fuer die Gruppe '$($Group.name)' gesetzt:" -ForegroundColor Yellow
+    Write-Host "Updateverzoegerung: $($ViewFilterSetting.delayInstallByDays) Tag(e)"
+    Write-Host "Installationszeitfenster: $($ViewFilterSetting.installWindowInDays) Tag(e)"
+    Write-Host "Neustart-Hinweis anzeigen: $($ViewFilterSetting.enableRebootNotify)"
+    Write-Host "Neustart-Hinweis Tage vor Alarmierung: $($ViewFilterSetting.installWindowInDays - $ViewFilterSetting.delayRebootNotifyByDays) Tag(e)"
+    Write-Host "Neustart-Hinweis Stunden bis zur erneuten Anzeige: $($ViewFilterSetting.maxRebootNotifyIntervalInHours) Stunde(n)"
+    Write-Host "Maximale Tage ohne Scan: $($ViewFilterSetting.maxScanAgeInDays) Tag(e)"
+    Write-Host "Downloadverhalten: $($ViewFilterSetting.downloadStrategy)"
 
     if ($addedCategories) {
-        $output += "Hinzugefügte Update-Kategorien: $addedCategories"
+        Write-Host "Hinzugefuegte Update Kategorien: $addedCategories"
     }
 
     if ($removedCategories) {
-        $output += "Entfernte Update-Kategorien: $removedCategories"
+        Write-Host "Entfernte Update Kategorien: $removedCategories"
     }
 
-    Write-Output ($output -join ", ")
+    Write-Host ""
 }
 
 
 $AuthToken = Test-SEAuth -AuthToken $AuthToken
 
-if ($ViewfilterName) {
-    $Groups = Get-SEViewFilters -AuthToken $AuthToken -CustomerID $CustomerID | Where-Object { $_.name -eq $ViewfilterName }
-}
-else {
+if ($ViewFilterName) {
+    $Groups = Get-SEViewFilters -AuthToken $AuthToken -CustomerID $CustomerID | Where-Object { $_.name -eq $ViewFilterName }
+} else {
     $Groups = Get-SEViewFilters -AuthToken $AuthToken -CustomerID $CustomerID
 }
 
-
 foreach ($Group in $Groups) {
-   
-  
-   
         $GroupSettings = Get-SEViewFilterSettings -AuthToken $AuthToken -CustomerID $CustomerID -ViewFilter $Group
-        Write-Debug "$GroupSettings not categories"
-    
-    
     foreach ($GroupSetting in $GroupSettings) {
-
-        Set-SEViewFilterSetting -AuthToken $AuthToken -ViewFilterSetting $GroupSetting -UpdateDelay $UpdateDelay -installDelay $installDelay -downloadStrategy $downloadStrategy -addedCategories $AddCategories -removedCategories $RemoveCategories
-  
+        Set-SEViewFilterSetting -AuthToken $AuthToken -ViewFilterSetting $GroupSetting -DelayInstallByDays $DelayInstallByDays -InstallWindowInDays $InstallWindowInDays -DownloadStrategy $DownloadStrategy -AddedCategories $AddCategories -RemovedCategories $RemoveCategories -MaxScanAgeInDays $MaxScanAgeInDays -EnableRebootNotify $EnableRebootNotify -MaxRebootNotifyIntervalInHours $MaxRebootNotifyIntervalInHours -DelayRebootNotifyByDays $DelayRebootNotifyByDays
     }
 }
 
