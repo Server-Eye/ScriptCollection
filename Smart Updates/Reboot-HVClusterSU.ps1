@@ -158,99 +158,95 @@ function set_preferred_owner {
 }
 
 function Reboot_HV {
-    # Setting up switch case ($false=shutdown, $true=start)
-    $b = Test-Path 'HKLM:\SOFTWARE\ShutdownScript'
+    # Check if the registry key exists
+    $isKeyPresent = Test-Path 'HKLM:\SOFTWARE\ShutdownScript'
     
-    switch ($b) {
-        $false {
-            try {
-                if ($running) {
-                    exit "not all HyperV nodes are running"
-                }
+    if (-not $isKeyPresent) {
+        try {
+            if ($running) {
+                exit "not all HyperV nodes are running"
+            }
 
-                if (!(Test-Path $scriptrunning)) {
-                    New-Item -Name "scriptrunning.txt" -Path $datastorage
-                    Set-Content $scriptrunning -Value $env:computername
+            if (!(Test-Path $scriptrunning)) {
+                New-Item -Name "scriptrunning.txt" -Path $datastorage
+                Set-Content $scriptrunning -Value $env:computername
+            } else {
+                $running = Get-Content $scriptrunning
+                if (!$running) {
+                    Set-Content $scriptrunning -Value $env:computername    
                 } else {
-                    $running = Get-Content $scriptrunning
-                    if (!$running) {
-                        Set-Content $scriptrunning -Value $env:computername    
-                    } else {
-                        Write-Log -Source $EventSourceName -EventID 3002 -EntryType Error -Message "Skript läuft noch auf einem anderen HyperV"
-                        exit
-                    }
-                } 
-                # Add and register scheduled task
-                $para = "-ExecutionPolicy unrestricted -NonInteractive -WindowStyle Hidden -NoLogo -NoProfile -NoExit -File " + '"' + $file + '"'
-                $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $para
-                $Option = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -WakeToRun
-                $Trigger = New-JobTrigger -AtStartUp -RandomDelay (New-TimeSpan -Minutes 5)
-                Register-ScheduledTask -TaskName RebootHVResumeJob -Action $Action -Trigger $Trigger -Settings $Option -RunLevel Highest -User "System"
+                    Write-Log -Source $EventSourceName -EventID 3002 -EntryType Error -Message "Skript läuft noch auf einem anderen HyperV"
+                    exit
+                }
+            } 
+            # Add and register scheduled task
+            $para = "-ExecutionPolicy unrestricted -NonInteractive -WindowStyle Hidden -NoLogo -NoProfile -NoExit -File " + '"' + $file + '"'
+            $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $para
+            $Option = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -WakeToRun
+            $Trigger = New-JobTrigger -AtStartUp -RandomDelay (New-TimeSpan -Minutes 5)
+            Register-ScheduledTask -TaskName RebootHVResumeJob -Action $Action -Trigger $Trigger -Settings $Option -RunLevel Highest -User "System"
      
-                # Create regkey
-                New-Item -Path HKLM:\SOFTWARE\ -Name ShutdownScript -Force
-                
-                # Loop for trying to move all VMs to other HyperV Node
+            # Create regkey
+            New-Item -Path HKLM:\SOFTWARE\ -Name ShutdownScript -Force
+            
+            # Loop for trying to move all VMs to other HyperV Node
+            for ($i = 0; $i -lt 5; $i++) {
+                move_vms
                 $vms = get-vm | Where-Object State -like "Running"
-                for ($i = 0; $i -lt 5; $i++) {
-                    move_vms
-                    $vms = get-vm | Where-Object State -like "Running"
-                    $Servers = Get-ClusterResource | Where-Object { $_.ResourceType -like "Virtual Machine" }
-                    $servers = $Servers | Where-Object Ownernode -like $env:computername
-                    $Servers = $Servers | Where-Object State -like "Online"
-                    if (!$servers) {
-                        foreach ($vm in $vms.Name) {
-                            stop-vm -Name $vm
-                            Start-Sleep -Seconds 30
-                        }
-                        $vms = get-vm | Where-Object State -like "Running"
-                        if ($null -eq $vms) {
-                            $i = 5
-                        }
+                $Servers = Get-ClusterResource | Where-Object { $_.ResourceType -like "Virtual Machine" }
+                $servers = $Servers | Where-Object Ownernode -like $env:computername
+                $Servers = $Servers | Where-Object State -like "Online"
+                if (!$servers) {
+                    foreach ($vm in $vms.Name) {
+                        stop-vm -Name $vm
+                        Start-Sleep -Seconds 30
                     }
-                } 
-                if ($null -ne $vms) {
-                    Write-Log -Source $EventSourceName -EventID 3002 -EntryType Error -Message "5 mal erfolglos versucht alle VMs zu verschieben, Abbruch!"
-                    move_vms_back
-                    Exit "VMS konnten nicht verschoben werden"
+                    $vms = get-vm | Where-Object State -like "Running"
+                    if ($null -eq $vms) {
+                        $i = 5
+                    }
                 }
-                Suspend-ClusterNode -Name $env:computername
-                Start-Sleep -s 3
-                # Reboot Hyper-V
-                $Comment = "Hyper V Reboot for Smart Updates"
-                $reason = "P"
-                $major = 0
-                $minor = 0
-                $Time = 1
-                $patchrun = "C:\Program Files (x86)\Server-Eye\triggerPatchRun.cmd"
-                $FileToRunpath = "C:\WINDOWS\system32\shutdown.exe"
-                $argument = '/r /t {0} /c "{1}" /d {2}:{3}:{4}' -f $Time, $Comment, $reason, $major, $minor
-                $startProcessParams = @{
-                    FilePath     = $FileToRunpath
-                    ArgumentList = $argument       
-                    NoNewWindow  = $true
-                }
-                Write-Log -Source $EventSourceName -EventID 3002 -EntryType Info -Message "Starte Smartupdates"
-                Start-Process $patchrun -ArgumentList "force" -Wait
-                Start-Process @startProcessParams  
-            }
-            catch {
+            } 
+            if ($null -ne $vms) {
+                Write-Log -Source $EventSourceName -EventID 3002 -EntryType Error -Message "5 mal erfolglos versucht alle VMs zu verschieben, Abbruch!"
                 move_vms_back
-                Write-Log -Source $EventSourceName -EventID 3002 -EntryType Error -Message "Something went wrong $_ "
+                Exit "VMS konnten nicht verschoben werden"
             }
+            Suspend-ClusterNode -Name $env:computername
+            Start-Sleep -s 3
+            # Reboot Hyper-V
+            $Comment = "Hyper V Reboot for Smart Updates"
+            $reason = "P"
+            $major = 0
+            $minor = 0
+            $Time = 1
+            $patchrun = "C:\Program Files (x86)\Server-Eye\triggerPatchRun.cmd"
+            $FileToRunpath = "C:\WINDOWS\system32\shutdown.exe"
+            $argument = '/r /t {0} /c "{1}" /d {2}:{3}:{4}' -f $Time, $Comment, $reason, $major, $minor
+            $startProcessParams = @{
+                FilePath     = $FileToRunpath
+                ArgumentList = $argument       
+                NoNewWindow  = $true
+            }
+            Write-Log -Source $EventSourceName -EventID 3002 -EntryType Info -Message "Starte Smartupdates"
+            Start-Process $patchrun -ArgumentList "force" -Wait
+            Start-Process @startProcessParams  
         }
-        $true {
-            Resume-ClusterNode -Name $env:computername
-
-            Start-Sleep -Seconds 60
+        catch {
             move_vms_back
-            Set-Content $scriptrunning -Value $null
-            # Remove regkey
-            Remove-Item -Path HKLM:\SOFTWARE\ShutdownScript -Recurse
-            # Remove job 
-            Unregister-ScheduledTask -TaskName RebootHVResumeJob -Confirm:$False
-            Write-Log -Source $EventSourceName -EventID 3002 -EntryType Info -Message "Skript erfolgreich"
+            Write-Log -Source $EventSourceName -EventID 3002 -EntryType Error -Message "Something went wrong $_ "
         }
+    } else {
+        Resume-ClusterNode -Name $env:computername
+
+        Start-Sleep -Seconds 60
+        move_vms_back
+        Set-Content $scriptrunning -Value $null
+        # Remove regkey
+        Remove-Item -Path HKLM:\SOFTWARE\ShutdownScript -Recurse
+        # Remove job 
+        Unregister-ScheduledTask -TaskName RebootHVResumeJob -Confirm:$False
+        Write-Log -Source $EventSourceName -EventID 3002 -EntryType Info -Message "Skript erfolgreich"
     }
 }
 #endregion
