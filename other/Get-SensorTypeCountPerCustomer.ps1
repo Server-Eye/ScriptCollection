@@ -35,7 +35,7 @@
     SE Landheim                          2                        0
 
     .EXAMPLE
-    PS> .\Get-SensorTypeCountPerCustomer.ps1 -SensorTypeIDs -AuthToken "1a2b3c4d-5e6f-7g8h-9i0j-1k2l3m4n5o6p" -ExportPath "C:\Temp\SensorTypeCount.xlsx"
+    PS> .\Get-SensorTypeCountPerCustomer.ps1 -AuthToken "1a2b3c4d-5e6f-7g8h-9i0j-1k2l3m4n5o6p" -ExportPath "C:\Temp\SensorTypeCount.xlsx"
 
     Generate a list of how many sensors of all types each customer has and export it to an Excel file.
     Note: It is recommended to use the ExportPath parameter when generating a list of all sensor types, as the output can be quite large. The console most likely won't be able to display all of it.
