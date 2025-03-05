@@ -57,6 +57,11 @@ param (
     [string]$AuthToken
 )
 
+if ($ExportPath -and (-not (Get-Command Export-Excel -ErrorAction SilentlyContinue))) {
+    Write-Error "The ImportExcel module is required for exporting to Excel. Install it via 'Install-Module ImportExcel' if you don't have it yet."
+    exit
+}
+
 $Agents = Get-SeApiMyNodesList -Filter agent -AuthToken $AuthToken
 $CustomerIds = $Agents | Select-Object -ExpandProperty customerId -Unique
 $SensorTypeList = Get-SeApiAgentTypeList -AuthToken $AuthToken
