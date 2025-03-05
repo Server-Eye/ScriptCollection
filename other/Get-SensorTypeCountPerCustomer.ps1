@@ -57,14 +57,14 @@ param (
     [string]$AuthToken
 )
 
+$Agents = Get-SeApiMyNodesList -Filter agent -AuthToken $AuthToken
+$CustomerIds = $Agents | Select-Object -ExpandProperty customerId -Unique
+$SensorTypeList = Get-SeApiAgentTypeList -AuthToken $AuthToken
+
 if (-not $SensorTypeIDs) {
     # If no SensorTypeIDs are provided by the user, get all sensor types of agents that exist at least once
     $SensorTypeIDs = $Agents | Select-Object -ExpandProperty agentType -Unique
 }
-
-$Agents = Get-SeApiMyNodesList -Filter agent -AuthToken $AuthToken
-$CustomerIds = $Agents | Select-Object -ExpandProperty customerId -Unique
-$SensorTypeList = Get-SeApiAgentTypeList -AuthToken $AuthToken
 
 $CustomerSensorCounts = @()
 foreach ($CustomerId in $CustomerIds) {
