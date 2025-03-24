@@ -1,4 +1,4 @@
-﻿#Requires -Module ServerEye.PowerShell.Helper
+#Requires -Module ServerEye.PowerShell.Helper
 <#
     .SYNOPSIS
     Dieses Skript setzt Einstellungen fuer Smart Updates Gruppen
