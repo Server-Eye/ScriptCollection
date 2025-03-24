@@ -63,41 +63,41 @@
 Param ( 
     [Parameter(Mandatory = $true)]
     [alias("ApiKey", "Session")]
-    $AuthToken,
+    [string]$AuthToken,
 
     [parameter(ValueFromPipelineByPropertyName, Mandatory = $true)]
-    $CustomerId,
+    [string]$CustomerId,
 
     [Parameter(Mandatory = $false)]
-    $ViewFilterName,
+    [string]$ViewFilterName,
 
     [Parameter(Mandatory = $false)]
     [ValidateRange(0, 60)]
-    $DelayInstallByDays,
+    [int]$DelayInstallByDays,
 
     [Parameter(Mandatory = $false)]
     [ValidateRange(1, 60)]
-    $InstallWindowInDays,
+    [int]$InstallWindowInDays,
 
     [Parameter(Mandatory = $false)]
     [ValidateSet("true", "false")]
-    $EnableRebootNotify,
+    [string]$EnableRebootNotify,
 
     [Parameter(Mandatory = $false)]
     [ValidateRange(1, 24)]
-    $MaxRebootNotifyIntervalInHours,
+    [int]$MaxRebootNotifyIntervalInHours,
 
     [Parameter(Mandatory = $false)]
     [ValidateRange(1, 60)]
-    $DelayRebootNotifyByDays,
+    [int]$DelayRebootNotifyByDays,
 
     [Parameter(Mandatory = $false)]
     [ValidateRange(2, 6)]
-    $MaxScanAgeInDays,
+    [int]$MaxScanAgeInDays,
 
     [Parameter(Mandatory = $false)]
     [ValidateSet("FILEDEPOT_ONLY", "FILEDEPOT_AND_DIRECT", "DIRECT_ONLY")]
-    $DownloadStrategy,
+    [string]$DownloadStrategy,
 
     [Parameter(Mandatory = $false)]
     [ArgumentCompleter(
@@ -105,7 +105,7 @@ Param (
                Get-SESUCategories 
             }
         )]
-     $AddCategories,
+    $AddCategories,
 
     [Parameter(Mandatory = $false)]
     [ArgumentCompleter(
@@ -113,7 +113,7 @@ Param (
                Get-SESUCategories 
             }
         )]
-     $RemoveCategories
+    $RemoveCategories
 )
 
 function Get-SEViewFilters {
