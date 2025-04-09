@@ -43,45 +43,67 @@
        Connect-SESession -WebSession $authtoken
       }
 	
-	 
-$CustomerListe = [System.Collections.ArrayList]@()
+$rawObjects = Get-SEApiMyNodesList -AuthToken $authtoken -Filter agent,container,customer
 
-	 foreach( $customer in Get-SECustomer) {
-	        
-            $name = $customer.Name
-            $clientCount =0
-            $serverCount =0
+$customers = $rawObjects | Where-Object { $_.type -eq 1 }
 
-		foreach($sensorhub in Get-SESensorhub -CustomerId $customer.CustomerId){
-            
-            
-
-            if($sensorhub.IsServer){
-            $serverCount++
-            }else{
-            $clientCount++
+$allTagNames = @()
+foreach ($obj in $rawObjects) {
+    if ($obj.PSObject.Properties['tags']) {
+        foreach ($tag in $obj.tags) {
+            if (-not $allTagNames.Contains($tag.name)) {
+                $allTagNames += $tag.name
             }
-
-		
-
-	}
-    
-        $CustomerObj = [PSCustomObject]@{
-    Name = "Customer"
-    clientCount = 0
-    serverCount = 0
+        }
+    }
 }
-	    $CustomerObj.Name = $name
-        $CustomerObj.clientCount = $clientCount
-        $CustomerObj.serverCount = $serverCount
+$allTagNames = $allTagNames | Sort-Object
 
-        Write-Host "Customer: " $CustomerObj.Name  " Clientsensoren:  "$CustomerObj.clientCount " ServerSensoren: "$CustomerObj.serverCount
+$output = @()
 
-        $CustomerListe.Add($CustomerObj)
+foreach ($customer in $customers) {
+    $customerId = $customer.id
+    $customerName = $customer.name
 
-	 }
-	 
-$ExcelDatei =  $excelPath+"\Liste.xls"
-	 
+    $children = $rawObjects | Where-Object { $_.customerID -eq $customerId }
 
-$CustomerListe | Export-Excel -Path $ExcelDatei -AutoSize
+    $tagCount = @{}
+    $clientCount = 0
+    $serverCount = 0
+
+    foreach ($child in $children) {
+        if ($child.PSObject.Properties['tags']) {
+            foreach ($tag in $child.tags) {
+                $tagName = $tag.name
+                if ($tagCount.ContainsKey($tagName)) {
+                    $tagCount[$tagName] += 1
+                } else {
+                    $tagCount[$tagName] = 1
+                }
+            }
+        }
+
+        if($child.subtype -eq 2){
+             if ($child.isServer) {
+                 $serverCount += 1
+             } else {
+                 $clientCount += 1
+              }
+        }
+    }
+
+    $row = [ordered]@{}
+    $row['ParentName'] = $customerName
+    $row['ClientCount'] = $clientCount
+    $row['ServerCount'] = $serverCount
+
+    foreach ($tagName in $allTagNames) {
+        $row[$tagName] = if ($tagCount.ContainsKey($tagName)) { $tagCount[$tagName] } else { 0 }
+    }
+
+    $output += [PSCustomObject]$row
+}
+
+$ExcelDatei = $excelPath + "\Liste.xls"
+$output | Export-Excel -Path $ExcelDatei -AutoSize -BoldTopRow
+
