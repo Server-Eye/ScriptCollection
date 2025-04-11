@@ -1,4 +1,4 @@
-﻿#Requires -Module ServerEye.Powershell.Helper
+#Requires -Module ServerEye.Powershell.Helper
 
 <#
     .SYNOPSIS

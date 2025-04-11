@@ -1,4 +1,4 @@
-﻿<#
+<#
     .SYNOPSIS
     Rename Sensorhubs of a customer (or multiple customers) to current hostname
     
