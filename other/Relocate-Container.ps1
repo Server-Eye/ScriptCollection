@@ -18,13 +18,13 @@
     .PARAMETER RemoveContainer
     Indicates whether the old container should be removed after relocation. Pass "true" to remove the Sensorhub container, otherwise leave empty.
 
-    .PARAMETER customerID
+    .PARAMETER CustomerNumber
     Customer ID of the customer where the system should be relocated.
 
-    .PARAMETER parentGuid
+    .PARAMETER ParentGuid
     Container ID of the OCC-Connector where the Sensorhub should be relocated.
 
-    .PARAMETER secretKey
+    .PARAMETER SecretKey
     SecretKey of the customer where the system should be relocated.
 
     .PARAMETER ApiKeyCurrentDistributor
@@ -39,7 +39,7 @@
     Version : 1.3
 
     .EXAMPLE
-    PS> .\Relocate-Container.ps1 -customerID 42569786 -parentGuid 4f1kg420-2315-28he-89bc-509s20b25f76 -secretKey e12ejgcf-d491-9892-bg83-95ka457938c2
+    PS> .\Relocate-Container.ps1 -CustomerNumber 42569786 -ParentGuid 4f1kg420-2315-28he-89bc-509s20b25f76 -SecretKey e12ejgcf-d491-9892-bg83-95ka457938c2
     Relocates the container to the specified customer with the given parent GUID and secret key.
 #>
 
@@ -60,7 +60,7 @@ Param (
 
     [Parameter(Mandatory = $true)]
     [string]
-    $CustomerID,
+    $CustomerNumber,
 
     [Parameter(Mandatory = $false)]
     [string]
@@ -70,7 +70,7 @@ Param (
     [string]
     $SecretKey,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]
     $ApiKeyCurrentDistributor,
 
@@ -98,11 +98,13 @@ $IsOCCConnector = Test-Path $MACConfigPath
 # If no new distributor API-Key is passed, assume the distributor will stay the same and use the current API key
 if (-not $ApiKeyNewDistributor) {
     $ApiKeyNewDistributor = $ApiKeyCurrentDistributor
+} elseif (-not $ApiKeyCurrentDistributor) {
+    $ApiKeyCurrentDistributor = $ApiKeyNewDistributor
 }
 
 # Get the current GUID
-$OldCCId = (Get-Content $CCConfigPath | Select-String -Pattern "guid=").ToString().Split("=")[1]
-if ($IsOCCConnector) { $OldMACId  = (Get-Content $MACConfigPath | Select-String -Pattern "guid=").ToString().Split("=")[1] }
+$OldCCId = (Get-Content $CCConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
+if ($IsOCCConnector) { $OldMACId  = (Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim() }
 
 #Logfile path
 $Logpath = "$env:windir\Temp\Relocate-Container.log"
@@ -114,6 +116,7 @@ function Log {
     $Stamp = (Get-Date).toString("dd/MM/yyyy HH:mm:ss")
     $LogMessage = "[$Stamp] $LogString"
     Add-Content "$Logpath" -Value $LogMessage
+    Write-Host $LogMessage
 }
 
 function Test-SEServiceStop() {
@@ -142,9 +145,9 @@ function Edit-SEConfigFiles() {
     if (($IsOCCConnector) -and ($MoveAs -eq "OCC-Connector")) {
         try {
             Log "Modifying se3_mac.conf..."
-            $content = Get-Content "$CCConfigPath" -Raw -ErrorAction Stop
+            $content = Get-Content $CCConfigPath -Raw -ErrorAction Stop
             # Regex magic, replaces each line with the desired string
-            $content = $content -replace "$customerString.*", "customer=$customerID"
+            $content = $content -replace "$customerString.*", "customer=$CustomerNumber"
             $content = $content -replace "$secretKeyString.*", "secretKey=$secretKey"
             $content = $content -replace "\n$guidString.*", "`nguid="
             $content | Set-Content $MACConfigPath
@@ -158,9 +161,9 @@ function Edit-SEConfigFiles() {
 
     try {
         Log "Modifying se3_cc.conf..."
-        $content = Get-Content "$CCConfigPath" -Raw -ErrorAction Stop
+        $content = Get-Content $CCConfigPath -Raw -ErrorAction Stop
         # Regex magic, replaces each line with the desired string
-        $content = $content -replace "$customerString.*", "customer=$customerID"
+        $content = $content -replace "$customerString.*", "customer=$CustomerNumber"
         $content = $content -replace "$parentGuidString.*", "parentGuid=$parentGuid"
         $content = $content -replace "$secretKeyString.*", "secretKey=$secretKey"
         $content = $content -replace "\n$guidString.*", "`nguid="
@@ -176,7 +179,7 @@ function Edit-SEConfigFiles() {
 function Stop-SEServices() {
     Log "Making sure all servereye services are stopped..."
     if ($IsOCCConnector) {
-        Stop-Service "SE3Recovery", "CCService", "MACService" -ErrorAction SilentlyContinue
+        Stop-Service "SE3Recovery", "MACService", "CCService" -ErrorAction SilentlyContinue
     } else {
         Stop-Service "SE3Recovery", "CCService" -ErrorAction SilentlyContinue
     }
@@ -188,8 +191,25 @@ function Stop-SEServices() {
 function Start-SEServices() {
     try {
         Log "Starting the needed services..."
-        if ($IsOCCConnector) {
-            Start-Service "SE3Recovery", "CCService", "MACService" -ErrorAction Stop
+        if ($IsOCCConnector -or ($MoveAs -eq "OCC-Connector")) {
+            Start-Service "SE3Recovery", "MACService" -ErrorAction Stop
+            Log "Started SE3Recovery and MACService."
+            Log "Waiting for MACService to generate the new GUID..."
+            for ($i = 1; $i -le 20; $i++) {
+                $GuidLine = Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid="
+                if ($null -ne $GuidLine) {
+                    $Guid = $GuidLine.ToString().Split("=")[1].Trim()
+                    if (-not [string]::IsNullOrWhiteSpace($Guid)) {
+                        break
+                    }
+                }
+                Log "Attempt $($i): GUID is empty or not found, waiting 5 seconds..."
+                Start-Sleep -Seconds 5
+                if ($i -eq 20) {
+                    Log "Failed to get a valid GUID after 20 attempts, relocation has failed. Terminating script."
+                    exit
+                }
+            }
         } else {
             Start-Service "SE3Recovery", "CCService" -ErrorAction Stop
         }
@@ -203,7 +223,7 @@ function Start-SEServices() {
 
 function Remove-SEDataPath() {
     try {
-        Remove-Item -Recurse -Force $SEDataPath -ErrorAction Stop
+        Remove-Item -Path $SEDataPath -Recurse -Force -ErrorAction Stop
     }
     catch {
         Log "There was an issue deleting the ServerEye3 folder:`n$_`nTerminating script."
@@ -233,6 +253,7 @@ function ConvertTo-SEOCCConnector {
     Log "Enabling OCC-Connector service and creating se3_mac.conf since -MoveAs 'OCC-Connector' was passed..."
     try {
         Set-Service "MACService" -StartupType Automatic -ErrorAction Stop
+        Log "OCC-Connector service enabled."
     }
     catch {
         Log "There was an issue disabling the OCC-Connector service:`n$_`nTerminating script."
@@ -240,12 +261,13 @@ function ConvertTo-SEOCCConnector {
     }
     try {
         Set-Content -Path $MACConfigPath -Value @"
-        customer=$CustomerID
-        name=
-        description=
-        secretKey=$SecretKey
-        guid=
+customer=$CustomerNumber
+name=
+description=
+secretKey=$SecretKey
+guid=
 "@
+        Log "se3_mac.conf created."
     }
     catch {
         Log "There was an issue creating se3_mac.conf:`n$_`nTerminating script."
@@ -258,8 +280,9 @@ function Move-SESensors {
     try {
         Log "Getting agents from old container..."
 		$Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldCCId/agents" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
-        $Agents = $Response.Content | ConvertFrom-Json
-        Log "Agents retrieved from old container: $($(($Agents | ForEach-Object { $_.name }) -join ', '))"
+        $Agents = $Response.Content | ConvertFrom-Json -ErrorAction Stop
+        Log "Agents retrieved from old container:"
+        $Agents | ForEach-Object { Log $_.name }
 	}
     catch {
         Log "Failed to get agents from old container. Error: `n$_`nTerminating script."
@@ -276,7 +299,7 @@ function Move-SESensors {
                 name = $Agent.name
             } | ConvertTo-Json
             $Response = Invoke-WebRequest -Method Post -Uri "https://api.server-eye.de/3/agent" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
-            $NewAgentId = $Response.Content.agentId | ConvertFrom-Json
+            $NewAgentId = ($Response.Content | ConvertFrom-Json -ErrorAction Stop).agentId
             Log "Agent $($Agent.name) added to container."
         }
         catch {
@@ -288,7 +311,8 @@ function Move-SESensors {
         foreach ($Setting in $Agent.settings) {
             try {
                 $Body = $Setting | Select-Object -Property settingsId, settingsValue | ConvertTo-Json
-                Invoke-WebRequest -Method Post -Uri "https://api.server-eye.de/3/agent/$NewAgentId/setting/$($Setting.settingsKey)" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+                $Response = Invoke-WebRequest -Method Post -Uri "https://api.server-eye.de/3/agent/$NewAgentId/setting/$($Setting.settingsKey)" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+                Log "Setting '$($Setting.settingsKey)' of agent '$($Agent.name)' set to '$($Setting.settingsValue)'."
             }
             catch {
                 Log "Failed to set setting '$($Setting.settingsKey)' of agent '$($Agent.name)'. Continuing with next setting. Error: `n$_"
@@ -303,7 +327,9 @@ function Copy-SEContainerSettings {
 
     try {
         Log "Retrieving container settings..."
-        Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldCCId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
+        $Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldCCId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $ResponseContent = $Response.Content | ConvertFrom-Json -ErrorAction Stop
+        Log "Container settings retrieved."
     }
     catch {
         Log "Failed to retrieve Sensorhub settings. Error: `n$_"
@@ -312,12 +338,13 @@ function Copy-SEContainerSettings {
     try {
         Log "Applying container settings..."
         $Body = @{
-            name = $Response.Content.name
-            alertOffline = $Response.Content.settings.alertOffline
-            alertShutdown = $Response.Content.settings.alertShutdown
-            maxHeartbeatTimeout = $Response.Content.settings.maxHeartbeatTimeout
+            name = $ResponseContent.name
+            alertOffline = $ResponseContent.settings.alertOffline
+            alertShutdown = $ResponseContent.settings.alertShutdown
+            maxHeartbeatTimeout = $ResponseContent.settings.maxHeartbeatTimeout
         } | ConvertTo-Json
-        Invoke-WebRequest -Method Post -Uri "https://api.server-eye.de/3/container/$NewCCId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+        $Response = Invoke-WebRequest -Method Post -Uri "https://api.server-eye.de/3/container/$NewCCId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+        Log "Container settings applied."
     }
     catch {
         Log "Error while applying container settings. Error: `n$_"
@@ -326,10 +353,10 @@ function Copy-SEContainerSettings {
     if ($IsOCCConnector -and ($MoveAs -eq "OCC-Connector")) {
         Log "Copying container settings for OCC-Connector..."
 
-
         try {
             Log "Retrieving container settings..."
-            Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldMACId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
+            $Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldMACId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
+            $ResponseContent = $Response.Content | ConvertFrom-Json -ErrorAction Stop
         }
         catch {
             Log "Failed to retrieve OCC-Connector settings. Error: `n$_"
@@ -339,11 +366,12 @@ function Copy-SEContainerSettings {
             Log "Applying container settings..."
             $Body = @{
                 name = $Response.Content.name
-                alertOffline = $Response.Content.settings.alertOffline
-                alertShutdown = $Response.Content.settings.alertShutdown
-                maxHeartbeatTimeout = $Response.Content.settings.maxHeartbeatTimeout
+                alertOffline = $ResponseContent.settings.alertOffline
+                alertShutdown = $ResponseContent.settings.alertShutdown
+                maxHeartbeatTimeout = $ResponseContent.settings.maxHeartbeatTimeout
             } | ConvertTo-Json
             Invoke-WebRequest -Method Post -Uri "https://api.server-eye.de/3/container/$NewMACId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+            Log "Container settings applied."
         }
         catch {
             Log "Error while applying container settings. Error: `n$_"
@@ -353,62 +381,76 @@ function Copy-SEContainerSettings {
 
 function Remove-SEPlannedTasks {
     Log "Removing planned tasks..."
+    try {
+        Import-Module ScheduledTasks -ErrorAction Stop
+    }
+    catch {
+        Log "Failed to import ScheduledTasks Module, servereye Tasks were not deleted on this system. Error: `n$_"
+    }
     $Tasks = Get-ScheduledTask -TaskPath "\Server-Eye Tasks" -ErrorAction SilentlyContinue
     foreach ($Task in $Tasks) {
         try {
+            $ProgressPreference = "SilentlyContinue"
             Unregister-ScheduledTask -TaskName $Task.TaskName -TaskPath "\Server-Eye Tasks" -Confirm:$false -ErrorAction Stop
+            $i++
         }
         catch {
             Log "Failed to remove planned task '$($Task.TaskName)'. Error: `n$_"
             continue
         }
     }
+    Log "Removed $i planned tasks."
 }
 
 function Test-SEForSuccessfulRelocation {
-    for ($i = 0; $i -lt 100; $i++) {
+    for ($i = 0; $i -lt 120; $i++) {
         if ($MoveAs -eq "Sensorhub") {
             try {
                 Log "Attempt $($i + 1): Getting new Sensorhub containerId..."
-                $script:NewCCId = (Get-Content $CCConfigPath -ErrorAction Stop | Select-String -Pattern "guid=").ToString().Split("=")[1]
-                if ($NewCCId -eq $OldCCId) {
-                    Log "New Sensorhub containerId is the same as the old one, relocation has failed. Terminating script."
-                    exit
+                $script:NewCCId = (Get-Content $CCConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
+                if (-not $NewCCId -or $NewCCId -eq $OldCCId) {
+                    if ($i -eq 119) {
+                        Log "Failed to get new containerId(s) after 20 minutes, relocation has most likely failed. Terminating script."
+                        exit
+                    }
+                    Start-Sleep -Seconds 10
+                    continue
                 }
                 Log "New Sensorhub containerId: $NewCCId"
                 break
             }
             catch {
-                Log "Attempt $($i + 1): Failed to get new container GUID, retrying in 3 seconds. Error: `n$_"
-                Start-Sleep -Seconds 3
+                Log "Failed to retrieve new Sensorhub containerId. Terminating script. Error: `n$_"
+                exit
             }
         } elseif ($MoveAs -eq "OCC-Connector") {
             try {
                 Log "Attempt $($i + 1): Getting new OCC-Connector containerId..."
-                $script:NewMACId = (Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "guid=").ToString().Split("=")[1]
-                if ($NewMACId -eq $OldMACId) {
-                    Log "New OCC-Connector containerId is the same as the old one, relocation has failed. Terminating script."
-                    exit
+                $script:NewMACId = (Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
+                if (-not $NewMACId -or $NewMACId -eq $OldMACId) {
+                    if ($i -eq 119) {
+                        Log "Failed to get new containerId(s) after 20 minutes, relocation has most likely failed. Terminating script."
+                        exit
+                    }
+                    Start-Sleep -Seconds 10
+                    continue
                 }
                 Log "New OCC-Connector containerId: $NewMACId"
                 break
             }
             catch {
-                Log "Attempt $($i + 1): Failed to get new container GUID, retrying in 3 seconds. Error: `n$_"
-                Start-Sleep -Seconds 3
+                Log "Failed to retrieve new OCC-Connector containerId. Terminating script. Error: `n$_"
+                exit
             }
         }
-        if ($i -eq 99) {
-            Log "Failed to get new containerId(s) after 5 minutes, relocation has most likely failed. Terminating script."
-            exit
-        }
+        Log "Relocation was successful!"
     }
 }
 
 function Remove-SESensorhubContainer {
     Log "Removing old Sensorhub container..."
     try {
-        Invoke-WebRequest -Method Delete -Uri "https://api.server-eye.de/3/container/$OldCCId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
+        $Request = Invoke-WebRequest -Method Delete -Uri "https://api.server-eye.de/3/container/$OldCCId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
         Log "Old Sensorhub container removed."
     }
     catch {
@@ -419,6 +461,7 @@ function Remove-SESensorhubContainer {
 #endregion
 
 #region Main execution
+Log "### Starting Relocate-Container.ps1 script... ###"
 Stop-SEServices
 if ($IsOCCConnector -and ($MoveAs -eq "Sensorhub")) { ConvertTo-SESensorhub }
 elseif ((-not $IsOCCConnector) -and ($MoveAs -eq "OCC-Connector")) { ConvertTo-SEOCCConnector }
@@ -427,9 +470,10 @@ Remove-SEDataPath
 Remove-SEPlannedTasks
 Start-SEServices
 Test-SEForSuccessfulRelocation
-Copy-SEContainerSettings
+if ($ApiKeyCurrentDistributor -or $ApiKeyNewDistributor) { Copy-SEContainerSettings }
 if ($MoveSensors -eq "true") { Move-SESensors }
 if ($RemoveContainer -eq "true") { Remove-SESensorhubContainer }
+Log "### Relocate-Container.ps1 script finished. ###"
 #endregion
 
 # SIG # Begin signature block
