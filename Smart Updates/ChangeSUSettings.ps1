@@ -116,6 +116,30 @@ Param (
     $RemoveCategories
 )
 
+     # Global variable
+	[string]$LogDir = 'C:\ProgramData\ServerEye3\logs'
+    [string]$LogFilePath = [string]::Format("{0}\{1}.log", $LogDir, $MyInvocation.MyCommand.Name.Replace(".ps1", ""))
+
+function Write-Log { 
+    [CmdletBinding()] 
+    param ( 
+        [Parameter(Mandatory)] 
+        [string]$Message
+    ) 
+      
+    try { 
+        if (!(Test-Path -path ([System.IO.Path]::GetDirectoryName($LogFilePath)))) {
+            New-Item -ItemType Directory -Path ([System.IO.Path]::GetDirectoryName($LogFilePath))
+        }
+        $DateTime = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+        Add-Content -Value "$DateTime - $Message" -Path $LogFilePath
+		Write-Host $Message
+    } 
+    catch { 
+        Write-Error $_.Exception.Message 
+    } 
+}
+
 function Get-SEViewFilters {
     param (
         $AuthToken,
@@ -123,7 +147,7 @@ function Get-SEViewFilters {
     )
     $CustomerViewFilterURL = "https://pm.server-eye.de/patch/$($CustomerID)/viewFilters"
           
-	Write-Verbose "Calling API to retrieve view filters for customer $CustomerID"
+	Write-Log "Calling API to retrieve view filters for customer $CustomerID"
           
     if ($authtoken -is [string]) {
         try {
@@ -132,7 +156,7 @@ function Get-SEViewFilters {
             return $ViewFilters 
         }
         catch {
-            Write-Error "$_"
+            Write-Log "$_"
         }
                         
     }
@@ -145,7 +169,7 @@ function Get-SEViewFilters {
                             
         }
         catch {
-            Write-Error "$_"
+            Write-Log "$_"
         }
     }
 }
@@ -158,7 +182,7 @@ function Get-SEViewFilterSettings {
     )
     $GetCustomerViewFilterSettingURL = "https://pm.server-eye.de/patch/$($customerId)/viewFilter/$($ViewFilter.vfId)/settings"
     
-	Write-Verbose "Fetching settings for view filter '$($ViewFilter.name)' (ID: $($ViewFilter.vfId))"
+	Write-Log "Fetching settings for view filter '$($ViewFilter.name)' (ID: $($ViewFilter.vfId))"
 
 	if ($authtoken -is [string]) {
         try {
@@ -166,7 +190,7 @@ function Get-SEViewFilterSettings {
             Return $ViewFilterSettings
         }
         catch {
-            Write-Error "$_"
+            Write-Log "ViewFilterSettings $_"
         }
     
     }
@@ -177,7 +201,7 @@ function Get-SEViewFilterSettings {
 
         }
         catch {
-            Write-Error "$_"
+            Write-Log "ViewFilterSettings $_"
         }
     }
 }
@@ -197,7 +221,7 @@ function Set-SEViewFilterSetting {
         $MaxRebootNotifyIntervalInHours
     )
 
-	Write-Verbose "Preparing settings payload for view filter ID: $($ViewFilterSetting.vfId)"
+	Write-Log "Preparing settings payload for view filter ID: $($ViewFilterSetting.vfId)"
 
     if ($InstallWindowInDays) {
         $ViewFilterSetting.installWindowInDays = $InstallWindowInDays
@@ -284,19 +308,19 @@ function Set-SEViewFilterSetting {
 
     $SetCustomerViewFilterSettingURL = "https://pm.server-eye.de/patch/$($ViewFilterSetting.customerId)/viewFilter/$($ViewFilterSetting.vfId)/settings"
     
-	Write-Verbose "Sending updated settings to Server-Eye API: $SetCustomerViewFilterSettingURL"
+	Write-Log "Sending updated settings to Server-Eye API: $SetCustomerViewFilterSettingURL"
 	
     if ($AuthToken -is [string]) {
         try {
             Invoke-RestMethod -Uri $SetCustomerViewFilterSettingURL -Method Post -Body $body -ContentType "application/json" -Headers @{"x-api-key" = $AuthToken } | Out-Null
         } catch {
-            Write-Error "$_"
+            Write-Log "Error while setting Customer Filter $_"
         }
     } else {
         try {
             Invoke-RestMethod -Uri $SetCustomerViewFilterSettingURL -Method Post -Body $body -ContentType "application/json" -WebSession $AuthToken | Out-Null
         } catch {
-            Write-Error "$_"
+            Write-Log "Error while setting Customer Filter $_"
         }
     }
 
