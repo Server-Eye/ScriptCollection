@@ -122,7 +122,9 @@ function Get-SEViewFilters {
         $CustomerID
     )
     $CustomerViewFilterURL = "https://pm.server-eye.de/patch/$($CustomerID)/viewFilters"
-                    
+          
+	Write-Verbose "Calling API to retrieve view filters for customer $CustomerID"
+          
     if ($authtoken -is [string]) {
         try {
             $ViewFilters = Invoke-RestMethod -Uri $CustomerViewFilterURL -Method Get -Headers @{"x-api-key" = $authtoken } | Where-Object { $_.vfId -ne "all" }
@@ -155,7 +157,10 @@ function Get-SEViewFilterSettings {
         $ViewFilter
     )
     $GetCustomerViewFilterSettingURL = "https://pm.server-eye.de/patch/$($customerId)/viewFilter/$($ViewFilter.vfId)/settings"
-    if ($authtoken -is [string]) {
+    
+	Write-Verbose "Fetching settings for view filter '$($ViewFilter.name)' (ID: $($ViewFilter.vfId))"
+
+	if ($authtoken -is [string]) {
         try {
             $ViewFilterSettings = Invoke-RestMethod -Uri $GetCustomerViewFilterSettingURL -Method Get -Headers @{"x-api-key" = $authtoken }
             Return $ViewFilterSettings
@@ -191,6 +196,8 @@ function Set-SEViewFilterSetting {
         $EnableRebootNotify,
         $MaxRebootNotifyIntervalInHours
     )
+
+	Write-Verbose "Preparing settings payload for view filter ID: $($ViewFilterSetting.vfId)"
 
     if ($InstallWindowInDays) {
         $ViewFilterSetting.installWindowInDays = $InstallWindowInDays
@@ -277,6 +284,8 @@ function Set-SEViewFilterSetting {
 
     $SetCustomerViewFilterSettingURL = "https://pm.server-eye.de/patch/$($ViewFilterSetting.customerId)/viewFilter/$($ViewFilterSetting.vfId)/settings"
     
+	Write-Verbose "Sending updated settings to Server-Eye API: $SetCustomerViewFilterSettingURL"
+	
     if ($AuthToken -is [string]) {
         try {
             Invoke-RestMethod -Uri $SetCustomerViewFilterSettingURL -Method Post -Body $body -ContentType "application/json" -Headers @{"x-api-key" = $AuthToken } | Out-Null
