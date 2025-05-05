@@ -101,24 +101,24 @@ Param (
 
     [Parameter(Mandatory = $false)]
     [ArgumentCompleter(
-            {
-               Get-SESUCategories 
-            }
-        )]
+        {
+            Get-SESUCategories 
+        }
+    )]
     $AddCategories,
 
     [Parameter(Mandatory = $false)]
     [ArgumentCompleter(
-            {
-               Get-SESUCategories 
-            }
-        )]
+        {
+            Get-SESUCategories 
+        }
+    )]
     $RemoveCategories
 )
 
-     # Global variable
-	[string]$LogDir = 'C:\ProgramData\ServerEye3\logs'
-    [string]$LogFilePath = [string]::Format("{0}\{1}.log", $LogDir, $MyInvocation.MyCommand.Name.Replace(".ps1", ""))
+# Global variable
+[string]$LogDir = 'C:\ProgramData\ServerEye3\logs'
+[string]$LogFilePath = [string]::Format("{0}\{1}.log", $LogDir, $MyInvocation.MyCommand.Name.Replace(".ps1", ""))
 
 function Write-Log { 
     [CmdletBinding()] 
@@ -133,7 +133,7 @@ function Write-Log {
         }
         $DateTime = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
         Add-Content -Value "$DateTime - $Message" -Path $LogFilePath
-		Write-Host $Message
+        Write-Host $Message
     } 
     catch { 
         Write-Error $_.Exception.Message 
@@ -147,7 +147,7 @@ function Get-SEViewFilters {
     )
     $CustomerViewFilterURL = "https://pm.server-eye.de/patch/$($CustomerID)/viewFilters"
           
-	Write-Log "Calling API to retrieve view filters for customer $CustomerID"
+    Write-Log "Calling API to retrieve view filters for customer $CustomerID"
           
     if ($authtoken -is [string]) {
         try {
@@ -182,9 +182,9 @@ function Get-SEViewFilterSettings {
     )
     $GetCustomerViewFilterSettingURL = "https://pm.server-eye.de/patch/$($customerId)/viewFilter/$($ViewFilter.vfId)/settings"
     
-	Write-Log "Fetching settings for view filter '$($ViewFilter.name)' (ID: $($ViewFilter.vfId))"
+    Write-Log "Fetching settings for view filter '$($ViewFilter.name)' (ID: $($ViewFilter.vfId))"
 
-	if ($authtoken -is [string]) {
+    if ($authtoken -is [string]) {
         try {
             $ViewFilterSettings = Invoke-RestMethod -Uri $GetCustomerViewFilterSettingURL -Method Get -Headers @{"x-api-key" = $authtoken }
             Return $ViewFilterSettings
@@ -221,23 +221,26 @@ function Set-SEViewFilterSetting {
         $MaxRebootNotifyIntervalInHours
     )
 
-	Write-Log "Preparing settings payload for view filter ID: $($ViewFilterSetting.vfId)"
+    Write-Log "Preparing settings payload for view filter ID: $($ViewFilterSetting.vfId)"
 
     if ($InstallWindowInDays) {
         $ViewFilterSetting.installWindowInDays = $InstallWindowInDays
-    } else {
+    }
+    else {
         $ViewFilterSetting.installWindowInDays = $ViewFilterSetting.installWindowInDays
     }
 
     if ($DelayInstallByDays) {
         $ViewFilterSetting.delayInstallByDays = $DelayInstallByDays
-    } else {
+    }
+    else {
         $ViewFilterSetting.delayInstallByDays = $ViewFilterSetting.delayInstallByDays
     }
 
     if ($MaxScanAgeInDays) {
         $ViewFilterSetting.maxScanAgeInDays = $MaxScanAgeInDays
-    } else {
+    }
+    else {
         $ViewFilterSetting.maxScanAgeInDays = $ViewFilterSetting.maxScanAgeInDays
     }
     
@@ -245,30 +248,35 @@ function Set-SEViewFilterSetting {
         # We need to convert the string to a boolean
         if ($EnableRebootNotify -eq "true") {
             $EnableRebootNotify = $true
-        } elseif ($EnableRebootNotify -eq "false") {
+        }
+        elseif ($EnableRebootNotify -eq "false") {
             $EnableRebootNotify = $false
         }
         $ViewFilterSetting.enableRebootNotify = $EnableRebootNotify
-    } else {
+    }
+    else {
         $ViewFilterSetting.enableRebootNotify = $ViewFilterSetting.enableRebootNotify
     }
 
     if ($MaxRebootNotifyIntervalInHours) {
         $ViewFilterSetting.maxRebootNotifyIntervalInHours = $MaxRebootNotifyIntervalInHours
-    } else {
+    }
+    else {
         $ViewFilterSetting.maxRebootNotifyIntervalInHours = $ViewFilterSetting.maxRebootNotifyIntervalInHours
     }
 
     if ($DelayRebootNotifyByDays) {
         # We need to calculate this value because of what the backend expects
         $ViewFilterSetting.delayRebootNotifyByDays = $ViewFilterSetting.installWindowInDays - $DelayRebootNotifyByDays
-    } else {
+    }
+    else {
         $ViewFilterSetting.delayRebootNotifyByDays = $ViewFilterSetting.delayRebootNotifyByDays
     }
 
     if ($DownloadStrategy) {
         $ViewFilterSetting.downloadStrategy = $DownloadStrategy
-    } else {
+    }
+    else {
         $ViewFilterSetting.downloadStrategy = $ViewFilterSetting.downloadStrategy
     }
 
@@ -303,23 +311,26 @@ function Set-SEViewFilterSetting {
     }
 
     $body = $ViewFilterSetting |
-        Select-Object -Property installWindowInDays, delayInstallByDays, categories, downloadStrategy, maxScanAgeInDays, enableRebootNotify, maxRebootNotifyIntervalInHours, delayRebootNotifyByDays |
-        ConvertTo-Json
+    Select-Object -Property installWindowInDays, delayInstallByDays, categories, downloadStrategy, maxScanAgeInDays, enableRebootNotify, maxRebootNotifyIntervalInHours, delayRebootNotifyByDays |
+    ConvertTo-Json
 
     $SetCustomerViewFilterSettingURL = "https://pm.server-eye.de/patch/$($ViewFilterSetting.customerId)/viewFilter/$($ViewFilterSetting.vfId)/settings"
     
-	Write-Log "Sending updated settings to Server-Eye API: $SetCustomerViewFilterSettingURL"
+    Write-Log "Sending updated settings to Server-Eye API: $SetCustomerViewFilterSettingURL"
 	
     if ($AuthToken -is [string]) {
         try {
             Invoke-RestMethod -Uri $SetCustomerViewFilterSettingURL -Method Post -Body $body -ContentType "application/json" -Headers @{"x-api-key" = $AuthToken } | Out-Null
-        } catch {
+        }
+        catch {
             Write-Log "Error while setting Customer Filter $_"
         }
-    } else {
+    }
+    else {
         try {
             Invoke-RestMethod -Uri $SetCustomerViewFilterSettingURL -Method Post -Body $body -ContentType "application/json" -WebSession $AuthToken | Out-Null
-        } catch {
+        }
+        catch {
             Write-Log "Error while setting Customer Filter $_"
         }
     }
@@ -350,12 +361,13 @@ $AuthToken = Test-SEAuth -AuthToken $AuthToken
 
 if ($ViewFilterName) {
     $Groups = Get-SEViewFilters -AuthToken $AuthToken -CustomerID $CustomerID | Where-Object { $_.name -eq $ViewFilterName }
-} else {
+}
+else {
     $Groups = Get-SEViewFilters -AuthToken $AuthToken -CustomerID $CustomerID
 }
 
 foreach ($Group in $Groups) {
-        $GroupSettings = Get-SEViewFilterSettings -AuthToken $AuthToken -CustomerID $CustomerID -ViewFilter $Group
+    $GroupSettings = Get-SEViewFilterSettings -AuthToken $AuthToken -CustomerID $CustomerID -ViewFilter $Group
     foreach ($GroupSetting in $GroupSettings) {
         Set-SEViewFilterSetting -AuthToken $AuthToken -ViewFilterSetting $GroupSetting -DelayInstallByDays $DelayInstallByDays -InstallWindowInDays $InstallWindowInDays -DownloadStrategy $DownloadStrategy -AddedCategories $AddCategories -RemovedCategories $RemoveCategories -MaxScanAgeInDays $MaxScanAgeInDays -EnableRebootNotify $EnableRebootNotify -MaxRebootNotifyIntervalInHours $MaxRebootNotifyIntervalInHours -DelayRebootNotifyByDays $DelayRebootNotifyByDays
     }
