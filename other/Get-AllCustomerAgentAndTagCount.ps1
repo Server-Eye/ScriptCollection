@@ -1,4 +1,4 @@
-#Requires -Module Powershell.Helper
+#Requires -Module ServerEye.Powershell.Helper
 #Requires -Module ImportExcel
 <#
     .SYNOPSIS
@@ -36,7 +36,6 @@ Param(
     $excelPath
 )
 
-Install-Module -Name ServerEye.Powershell.Helper
 Import-Module -Name ServerEye.Powershell.Helper
 Import-Module ImportExcel
 
