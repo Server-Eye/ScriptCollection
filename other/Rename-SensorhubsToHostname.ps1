@@ -70,7 +70,7 @@ if ($CustomerName) {
     if (-not $Force) {
         # Display a warning message and prompt the user to continue or exit
         $confirmation = Read-Host "WARNING: You are about to rename ALL Sensorhubs for ALL customers. Do you want to continue? (yes/no)"
-        if ($confirmation -ne 'y' -or $confirmation -ne 'yes') {
+        if ($confirmation -ne 'y' -and $confirmation -ne 'yes') {
             Write-Host "Operation cancelled by user." -ForegroundColor Red
             exit
         }
