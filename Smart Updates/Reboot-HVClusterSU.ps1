@@ -1,3 +1,25 @@
+<#
+    .SYNOPSIS
+    Orchestrates a safe reboot of a Hyper-V cluster node for Smart Updates, ensuring virtual machines are live-migrated and services are resumed after reboot.
+
+    .DESCRIPTION
+    This script automates the process of rebooting a node in a Hyper-V cluster as part of a Smart Updates workflow.
+    It checks the cluster state, moves all running virtual machines from the current node to other nodes using live migration, and schedules a reboot via a scheduled task.
+    After reboot, it resumes the cluster node, moves VMs back to their preferred hosts, and cleans up temporary files and registry keys.
+    Logging is performed throughout the process for auditing and troubleshooting.
+
+    .EXAMPLE
+    PS > .\Reboot-HVClusterSU.ps1
+
+    Runs the script on the current Hyper-V cluster node.
+    All VMs are live-migrated off the node, the node is rebooted, and after startup, the node is resumed and VMs are moved back to their preferred hosts.
+    Logs are written to the ServerEye logs directory.
+
+    .NOTES
+    Author  : servereye
+    Version : 1.0
+#>
+
 #region Variables
 $Servers = Get-ClusterResource | Where-Object { $_.ResourceType -like "Virtual Machine" }
 $PreferredHosts = Get-ClusterGroup | Get-ClusterOwnerNode
@@ -139,6 +161,7 @@ function Reboot_HV {
             if ($null -ne $VMs) {
                 Write-Log -Source $EventSourceName -EventID 3002 -EntryType Error -Message "Tried to move all VMs 5 times, but some are still running. Exiting!"
                 Move_VMs_Back
+                Remove-Item -Path HKLM:\SOFTWARE\ShutdownScript -Recurse
                 Exit "VMs couldn't be moved."
             }
             Suspend-ClusterNode -Name $Env:COMPUTERNAME
@@ -163,6 +186,7 @@ function Reboot_HV {
         }
         catch {
             Move_VMs_Back
+            Remove-Item -Path HKLM:\SOFTWARE\ShutdownScript -Recurse
             Write-Log -Source $EventSourceName -EventID 3002 -EntryType Error -Message "Something went wrong $_ "
         }
     } else {
