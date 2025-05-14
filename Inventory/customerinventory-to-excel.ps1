@@ -90,7 +90,11 @@ function Inventory {
         $HubStatus.Cid = $Hub.Id
         $HubStatus.LastRebootUser = $HubTemp.LastRebootInfo.User
         $State = (Get-SeApiContainerStateListbulk -AuthToken $ApiKey -CId $Hub.Id)
-        $LastDate = [datetime]$State.LastDate
+        if ($null -eq $State.LastDate) {
+            $LastDate = "N/A"
+        } else {
+            $LastDate = [datetime]$State.LastDate
+        }
         $HubStatus.LastDate = $LastDate
         if ($LastDate -lt ((Get-Date).AddDays(-60)) -or $State.Message -eq 'OCC Connector hat die Verbindung zum Sensorhub verloren') {
             $HubStatus.Inventory = $false
