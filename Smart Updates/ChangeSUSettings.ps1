@@ -2,38 +2,62 @@
 <#
     .SYNOPSIS
     Dieses Skript setzt Einstellungen fuer Smart Updates Gruppen
+
+    This script sets configurations for Smart Updates groups.
     
     .DESCRIPTION
     Mit diesem Skript koennen pro Kunde oder kundenuebergreifend Einstellungen fuer Smart Updates Gruppen gesetzt werden.
     Unterstuetzt werden alle Einstellungen, die sich im OCC taetigen lassen.
     Weitere Infos: https://servereye.freshdesk.com/support/solutions/articles/14000115738-anleitung-smart-updates-gruppeneinstellungen-in-masse-definieren
 
+    This script allows you to define settings for Smart Updates groups either per customer or across multiple customers.
+    All settings that can be configured via the OCC are supported.
+    More information: https://servereye.freshdesk.com/support/solutions/articles/14000115738-anleitung-smart-updates-gruppeneinstellungen-in-masse-definieren
+
     .PARAMETER AuthToken
     Nutzt die Session oder einen ApiKey. Wenn der Parameter nicht gesetzt ist wird die globale servereye Session genutzt.
+
+    Uses the current session or an API key. If the parameter is not set, the global servereye session is used.
 
     .PARAMETER CustomerId
     Die Kunden ID des Kunden, bei dem die Einstellungen geaendert werden sollen. Hier koennen auch mehrere Kunden mitgegeben werden, indem Get-SECustomer an das Skript gepiped wird.
 
+    The customer ID of the customer whose settings should be changed. You can also pass multiple customers by piping Get-SECustomer into the script.
+
     .PARAMETER ViewFilterName
     Der Name der Gruppe, die angepasst werden soll.
+
+    The name of the group to be modified.
 
     .PARAMETER DelayInstallByDays
     Dauer, um die die Installation von Updates verzoegert wird. Massgeblich ist der Tag, an dem das Update veroeffentlicht wurde.
 
+    Number of days to delay the installation of updates. The reference point is the day the update was released.
+
     .PARAMETER InstallWindowInDays
     Zeitraum fuer die Installation, bevor ein Alarm ausgeloest wird.
+
+    Time period allowed for installation before an alert is triggered.
 
     .PARAMETER EnableRebootNotify
     Bei ausstehenden Updates wird dem Benutzer ein Hinweis auf einen erforderlichen Neustart des Systems angezeigt.
 
+    If updates are pending, a message will be shown to the user indicating that a system restart is required.
+
     .PARAMETER MaxRebootNotifyIntervalInHours
     Stunden bis dem Benutzer der Hinweis erneut angezeigt wird.
+
+    Number of hours until the user is reminded again about the required reboot.
 
     .PARAMETER DelayRebootNotifyByDays
     Zeitraum in dem der Benutzer auf einen Systemneustart hingewiesen wird, bevor ein Alarm ausgeloest wird. Das Abbrechen der Installation ist dann nicht mehr moeglich.
 
+    Time period in which the user will be notified of a pending reboot before an alert is triggered. Canceling the installation is no longer possible after this period.
+
     .PARAMETER MaxScanAgeInDays
     Ab wie vielen Tagen ohne Scan moechtest du einen Alarm?
+
+    After how many days without a scan should an alert be triggered?
 
     .PARAMETER DownloadStrategy
     Waehle aus ueber welche Wege die Updates heruntergeladen werden duerfen:
@@ -41,12 +65,21 @@
     "FILEDEPOT_AND_DIRECT" (Primaer ueber das FileDepot downloaden, als Fallback ueber den direkten Weg),
     "DIRECT_ONLY" (Ausschliesslich ueber den direkten Weg downloaden ohne FileDepot)
 
+    Choose the method for downloading updates:
+    "FILEDEPOT_ONLY" (Download only via FileDepot),
+    "FILEDEPOT_AND_DIRECT" (Primarily via FileDepot, fallback to direct download),
+    "DIRECT_ONLY" (Download only via direct path, without using FileDepot)
+
     .PARAMETER AddCategories
     Update Kategorien die hinzugefuegt werden sollen.
+
+    Update categories that should be added.
 
     .PARAMETER RemoveCategories
     Update Kategorien die entfernt werden sollen.
 
+    Update categories that should be removed.
+    
     .EXAMPLE
     PS> .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -DelayInstallByDays "Tage fuer die Verzoegerung" -InstallWindowInDays "Tage fuer die Installation"
     
