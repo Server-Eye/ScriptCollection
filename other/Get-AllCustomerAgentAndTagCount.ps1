@@ -1,5 +1,3 @@
-#Requires -Module ServerEye.Powershell.Helper
-#Requires -Module ImportExcel
 <#
     .SYNOPSIS
         Collects system data and generates an Excel report with Client/Server counts and tags for each customer.
