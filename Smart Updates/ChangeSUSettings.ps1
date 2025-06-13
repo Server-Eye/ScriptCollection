@@ -54,6 +54,16 @@
 
     Time period in which the user will be notified of a pending reboot before an alert is triggered. Canceling the installation is no longer possible after this period.
 
+    .PARAMETER EnableForceReboot
+    Bei ausstehenden Updates wird ein Systemneustart erzwungen, um die ausstehenden Updates zu installieren.
+
+    If updates are pending, a system restart will be forced to install the updates.
+
+    .PARAMETER DelayForceRebootByDays
+    Zeitpunkt vor der Alarmierung, an dem der Systemneustart erzwungen wird. Der Benutzer hat die Moeglichkeit den Neustart um bis zu 4 Stunden zu verzoegern.
+
+    Time before an alert is triggered when a forced system restart will occur. The user has the option to delay the restart by up to 4 hours.
+
     .PARAMETER MaxScanAgeInDays
     Ab wie vielen Tagen ohne Scan moechtest du einen Alarm?
 
@@ -123,6 +133,14 @@ Param (
     [Parameter(Mandatory = $false)]
     [ValidateRange(1, 60)]
     [int]$DelayRebootNotifyByDays,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("true", "false")]
+    [string]$EnableForceReboot,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateRange(1, 60)]
+    [int]$DelayForceRebootByDays,
 
     [Parameter(Mandatory = $false)]
     [ValidateRange(2, 6)]
@@ -222,56 +240,43 @@ function Set-SEViewFilterSetting {
         $RemovedCategories,
         $MaxScanAgeInDays,
         $EnableRebootNotify,
-        $MaxRebootNotifyIntervalInHours
+        $MaxRebootNotifyIntervalInHours,
+        $EnableForceReboot,
+        $DelayForceRebootByDays
     )
 
     if ($InstallWindowInDays) {
         $ViewFilterSetting.installWindowInDays = $InstallWindowInDays
-    } else {
-        $ViewFilterSetting.installWindowInDays = $ViewFilterSetting.installWindowInDays
     }
 
     if ($DelayInstallByDays) {
         $ViewFilterSetting.delayInstallByDays = $DelayInstallByDays
-    } else {
-        $ViewFilterSetting.delayInstallByDays = $ViewFilterSetting.delayInstallByDays
     }
 
     if ($MaxScanAgeInDays) {
         $ViewFilterSetting.maxScanAgeInDays = $MaxScanAgeInDays
-    } else {
-        $ViewFilterSetting.maxScanAgeInDays = $ViewFilterSetting.maxScanAgeInDays
     }
     
     if ($EnableRebootNotify) {
-        # We need to convert the string to a boolean
         if ($EnableRebootNotify -eq "true") {
             $EnableRebootNotify = $true
         } elseif ($EnableRebootNotify -eq "false") {
             $EnableRebootNotify = $false
         }
         $ViewFilterSetting.enableRebootNotify = $EnableRebootNotify
-    } else {
-        $ViewFilterSetting.enableRebootNotify = $ViewFilterSetting.enableRebootNotify
     }
 
     if ($MaxRebootNotifyIntervalInHours) {
         $ViewFilterSetting.maxRebootNotifyIntervalInHours = $MaxRebootNotifyIntervalInHours
-    } else {
-        $ViewFilterSetting.maxRebootNotifyIntervalInHours = $ViewFilterSetting.maxRebootNotifyIntervalInHours
     }
 
     if ($DelayRebootNotifyByDays) {
         # We need to calculate this value because of what the backend expects
         $ViewFilterSetting.delayRebootNotifyByDays = $ViewFilterSetting.installWindowInDays - $DelayRebootNotifyByDays
-    } else {
-        $ViewFilterSetting.delayRebootNotifyByDays = $ViewFilterSetting.delayRebootNotifyByDays
     }
 
     if ($DownloadStrategy) {
         $ViewFilterSetting.downloadStrategy = $DownloadStrategy
-    } else {
-        $ViewFilterSetting.downloadStrategy = $ViewFilterSetting.downloadStrategy
     }
 
     if ($AddedCategories -or $RemovedCategories) {
@@ -304,8 +309,22 @@ function Set-SEViewFilterSetting {
         $ViewFilterSetting.categories = $newSettingList
     }
 
+    if ($EnableForceReboot) {
+        if ($EnableForceReboot -eq "true") {
+            $EnableForceReboot = $true
+        } elseif ($EnableForceReboot -eq "false") {
+            $EnableForceReboot = $false
+        }
+        $ViewFilterSetting.enableForceReboot = $EnableForceReboot
+    }
+
+    if ($DelayForceRebootByDays) {
+        # We need to calculate this value because of what the backend expects
+        $ViewFilterSetting.delayForceRebootByDays = $ViewFilterSetting.delayInstallByDays + $ViewFilterSetting.installWindowInDays - $DelayForceRebootByDays
+    }
+
     $body = $ViewFilterSetting |
-        Select-Object -Property installWindowInDays, delayInstallByDays, categories, downloadStrategy, maxScanAgeInDays, enableRebootNotify, maxRebootNotifyIntervalInHours, delayRebootNotifyByDays |
+        Select-Object -Property installWindowInDays, delayInstallByDays, categories, downloadStrategy, maxScanAgeInDays, enableRebootNotify, maxRebootNotifyIntervalInHours, delayRebootNotifyByDays, enableForceReboot, delayForceRebootByDays |
         ConvertTo-Json
 
     $SetCustomerViewFilterSettingURL = "https://pm.server-eye.de/patch/$($ViewFilterSetting.customerId)/viewFilter/$($ViewFilterSetting.vfId)/settings"
@@ -333,6 +352,8 @@ function Set-SEViewFilterSetting {
     Write-Host "Neustart-Hinweis Stunden bis zur erneuten Anzeige: $($ViewFilterSetting.maxRebootNotifyIntervalInHours) Stunde(n)"
     Write-Host "Maximale Tage ohne Scan: $($ViewFilterSetting.maxScanAgeInDays) Tag(e)"
     Write-Host "Downloadverhalten: $($ViewFilterSetting.downloadStrategy)"
+    Write-Host "Erzwungener Neustart: $($ViewFilterSetting.enableForceReboot)"
+    Write-Host "Erzwungener Neustart nach Tagen: $($ViewFilterSetting.delayInstallByDays + $ViewFilterSetting.installWindowInDays - $ViewFilterSetting.delayForceRebootByDays) Tag(e)"
 
     if ($addedCategories) {
         Write-Host "Hinzugefuegte Update Kategorien: $addedCategories"
@@ -345,7 +366,6 @@ function Set-SEViewFilterSetting {
     Write-Host ""
 }
 
-
 $AuthToken = Test-SEAuth -AuthToken $AuthToken
 
 if ($ViewFilterName) {
@@ -357,7 +377,7 @@ if ($ViewFilterName) {
 foreach ($Group in $Groups) {
         $GroupSettings = Get-SEViewFilterSettings -AuthToken $AuthToken -CustomerID $CustomerID -ViewFilter $Group
     foreach ($GroupSetting in $GroupSettings) {
-        Set-SEViewFilterSetting -AuthToken $AuthToken -ViewFilterSetting $GroupSetting -DelayInstallByDays $DelayInstallByDays -InstallWindowInDays $InstallWindowInDays -DownloadStrategy $DownloadStrategy -AddedCategories $AddCategories -RemovedCategories $RemoveCategories -MaxScanAgeInDays $MaxScanAgeInDays -EnableRebootNotify $EnableRebootNotify -MaxRebootNotifyIntervalInHours $MaxRebootNotifyIntervalInHours -DelayRebootNotifyByDays $DelayRebootNotifyByDays
+        Set-SEViewFilterSetting -AuthToken $AuthToken -ViewFilterSetting $GroupSetting -DelayInstallByDays $DelayInstallByDays -InstallWindowInDays $InstallWindowInDays -DownloadStrategy $DownloadStrategy -AddedCategories $AddCategories -RemovedCategories $RemoveCategories -MaxScanAgeInDays $MaxScanAgeInDays -EnableRebootNotify $EnableRebootNotify -MaxRebootNotifyIntervalInHours $MaxRebootNotifyIntervalInHours -DelayRebootNotifyByDays $DelayRebootNotifyByDays -EnableForceReboot $EnableForceReboot -DelayForceRebootByDays $DelayForceRebootByDays
     }
 }
 
