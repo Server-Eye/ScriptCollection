@@ -63,7 +63,7 @@ function Reboot-HV {
                 }
             }
             # Add and register scheduled task
-            $Para = "-ExecutionPolicy unrestricted -NonInteractive -WindowStyle Hidden -NoLogo -NoProfile -NoExit -File '$CurrentScriptPath'"
+            $Para = "-ExecutionPolicy unrestricted -NonInteractive -WindowStyle Hidden -NoLogo -NoProfile -NoExit -File `"$CurrentScriptPath`""
             $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $Para
             $Option = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -WakeToRun
             $Trigger = New-JobTrigger -AtStartUp -RandomDelay (New-TimeSpan -Minutes 5)
