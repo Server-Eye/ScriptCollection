@@ -265,7 +265,7 @@ function ConvertTo-SEOCCConnector {
         Log "OCC-Connector service enabled."
     }
     catch {
-        Log "There was an issue disabling the OCC-Connector service:`n$_`nTerminating script."
+        Log "There was an issue enabling the OCC-Connector service:`n$_`nTerminating script."
         exit
     }
     try {
@@ -289,7 +289,9 @@ function Move-SESensors {
     try {
         Log "Getting agents from old container..."
 		$Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldCCId/agents" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
-        $Agents = $Response.Content | ConvertFrom-Json -ErrorAction Stop
+        
+        # API v3 currently has a bug where agent shadows are returned in addition to real sensors so we need to filter them out by making sure the incarnation is "AGENT" and not "SHADOW"
+        $Agents = $Response.Content | ConvertFrom-Json -ErrorAction Stop | Where-Object -Property incarnation -eq "AGENT"
         Log "Agents retrieved from old container:"
         $Agents | ForEach-Object { Log "- $($_.name)" }
 	}
@@ -316,16 +318,20 @@ function Move-SESensors {
             continue
         }
 
-        # TODO: Implement configuration of base settings via PUT /3/agent/{agentId} (https://api.server-eye.de/3/docs/#/agent/put_3_agent__agentId_)
-        Log "Setting base settings of agent '$($Agent.name)'..."
+        Log "Setting interval and pause times of agent '$($Agent.name)'..."
         try {
-            
+            $Body = @{
+                interval = $Agent.interval
+                pause = $Agent.pause
+            } | ConvertTo-Json
+            $Response = Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/agent/$NewAgentId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+            Log "Interval and pause times set for agent '$($Agent.name)'."
         }
         catch {
-            <#Do this if a terminating exception happens#>
+            Log "Failed to set interval of '$($Agent.interval)' and pause time of '$($Agent.pause)' for agent '$($Agent.name)'. Error: `n$_`n"
         }
 
-        Log "Setting settings of agent '$($Agent.name)'..."
+        Log "Setting main settings of agent '$($Agent.name)'..."
         foreach ($Setting in $Agent.settings) {
             try {
                 $Body = $Setting | Select-Object -Property settingsId, settingsValue | ConvertTo-Json
