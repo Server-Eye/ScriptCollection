@@ -142,19 +142,14 @@ function Test-SEServiceStop() {
 }
 
 function Edit-SEConfigFiles() {
-    $customerString = "customer="
-    $parentGuidString = "parentGuid="
-    $secretKeyString = "secretKey="
-    $guidString = "guid="
-
     if (($IsOCCConnector) -and ($MoveAs -eq "OCC-Connector")) {
         try {
             Log "Modifying se3_mac.conf..."
             $content = Get-Content $MACConfigPath -Raw -ErrorAction Stop
-            # Regex magic, replaces each line with the desired string
-            $content = $content -replace "$customerString.*", "customer=$CustomerNumber"
-            $content = $content -replace "$secretKeyString.*", "secretKey=$SecretKey"
-            $content = $content -replace "\n$guidString.*", "`nguid="
+            # Use multiline regex mode to replace each config line
+            $content = [regex]::Replace($content, "^customer=.*$", "customer=$CustomerNumber", "Multiline")
+            $content = [regex]::Replace($content, "^secretKey=.*$", "secretKey=$SecretKey", "Multiline")
+            $content = [regex]::Replace($content, "^guid=.*$", "guid=", "Multiline")
             $content | Set-Content $MACConfigPath
             Log "Successfully modified se3_mac.conf."
         }
@@ -167,11 +162,11 @@ function Edit-SEConfigFiles() {
     try {
         Log "Modifying se3_cc.conf..."
         $content = Get-Content $CCConfigPath -Raw -ErrorAction Stop
-        # Regex magic, replaces each line with the desired string
-        $content = $content -replace "$customerString.*", "customer=$CustomerNumber"
-        $content = $content -replace "$parentGuidString.*", "parentGuid=$ParentGuid"
-        $content = $content -replace "$secretKeyString.*", "secretKey=$SecretKey"
-        $content = $content -replace "\n$guidString.*", "`nguid="
+        # Use multiline regex mode to replace each config line
+        $content = [regex]::Replace($content, "^customer=.*$", "customer=$CustomerNumber", "Multiline")
+        $content = [regex]::Replace($content, "^parentGuid=.*$", "parentGuid=$ParentGuid", "Multiline")
+        $content = [regex]::Replace($content, "^secretKey=.*$", "secretKey=$SecretKey", "Multiline")
+        $content = [regex]::Replace($content, "^guid=.*$", "guid=", "Multiline")
         $content | Set-Content $CCConfigPath
         Log "Successfully modified se3_cc.conf."
     }
@@ -195,8 +190,8 @@ function Stop-SEServices() {
 
 function Start-SEServices() {
     try {
-        Log "Starting the needed services and waiting for new OCC-Connector GUID..."
         if ($IsOCCConnector -or ($MoveAs -eq "OCC-Connector")) {
+            Log "Starting the needed services and waiting for new OCC-Connector GUID..."
             Start-Service "MACService", "SE3Recovery" -ErrorAction Stop
             Log "Started MACService and SE3Recovery."
             Log "Waiting for MACService to generate the new GUID..."
@@ -220,7 +215,9 @@ function Start-SEServices() {
             Start-Service "CCService" -ErrorAction Stop
             Log "Started CCService."
         } else {
+            Log "Starting the needed services..."
             Start-Service "CCService", "SE3Recovery" -ErrorAction Stop
+            Log "Started CCService and SE3Recovery."
         }
         Log "Started all needed services."
     }
@@ -285,13 +282,15 @@ guid=
 }
 
 function Move-SESensors {
-    Log "Moving agents to new container..."
+    Log "Moving agents to new container"
     try {
         Log "Getting agents from old container..."
 		$Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldCCId/agents" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
         
         # API v3 currently has a bug where agent shadows are returned in addition to real sensors so we need to filter them out by making sure the incarnation is "AGENT" and not "SHADOW"
-        $Agents = $Response.Content | ConvertFrom-Json -ErrorAction Stop | Where-Object -Property incarnation -eq "AGENT"
+        $Agents = $Response.Content | ConvertFrom-Json -ErrorAction Stop
+        $Agents = $Agents | Where-Object -Property incarnation -eq "AGENT"
+
         Log "Agents retrieved from old container:"
         $Agents | ForEach-Object { Log "- $($_.name)" }
 	}
@@ -335,8 +334,23 @@ function Move-SESensors {
         foreach ($Setting in $Agent.settings) {
             try {
                 $Body = $Setting | Select-Object -Property settingsId, settingsValue | ConvertTo-Json
-                $Response = Invoke-WebRequest -Method Post -Uri "https://api.server-eye.de/3/agent/$NewAgentId/setting/$($Setting.settingsKey)" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
-                Log "Setting '$($Setting.settingsKey)' of agent '$($Agent.name)' set to '$($Setting.settingsValue)'."
+                # Retry up to 5 times in case the agent is not yet available
+                $maxTries = 5
+                for ($try = 1; $try -le $maxTries; $try++) {
+                    try {
+                        $Response = Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/agent/$NewAgentId/setting/$($Setting.settingsKey)" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+                        Log "Setting '$($Setting.settingsKey)' of agent '$($Agent.name)' set to '$($Setting.settingsValue)'."
+                        break
+                    }
+                    catch {
+                        if ($_.Exception.Response -and ($_.Exception.Response.StatusCode.value__ -eq 404) -and ($try -lt $maxTries)) {
+                            Log "Attempt $($try): Agent setting not found, retrying in 2 seconds..."
+                            Start-Sleep -Seconds 2
+                        } else {
+                            throw
+                        }
+                    }
+                }
             }
             catch {
                 Log "Failed to set setting '$($Setting.settingsKey)' of agent '$($Agent.name)'. Continuing with next setting. Error: `n$_`n"
@@ -347,7 +361,7 @@ function Move-SESensors {
 }
 
 function Copy-SEContainerSettings {
-    Log "Copying container settings for Sensorhub..."
+    Log "Copying container settings for Sensorhub"
 
     try {
         Log "Retrieving container settings..."
