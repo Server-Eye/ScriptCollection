@@ -272,7 +272,7 @@ function Set-SEViewFilterSetting {
 
     if ($DelayRebootNotifyByDays) {
         # The backend expects the delayRebootNotifyByDays to be the difference between the installWindowInDays and the delayRebootNotifyByDays
-        $ViewFilterSetting.delayRebootNotifyByDays = $InstallWindowInDays - $DelayRebootNotifyByDays + $DelayInstallByDays
+        $ViewFilterSetting.delayRebootNotifyByDays = $ViewFilterSetting.installWindowInDays - $ViewFilterSetting.delayRebootNotifyByDays + $ViewFilterSetting.delayInstallByDays
     }
 
     if ($DownloadStrategy) {
@@ -319,8 +319,8 @@ function Set-SEViewFilterSetting {
     }
 
     if ($DelayForceRebootByDays) {
-        # We need to calculate this value because of what the backend expects
-        $ViewFilterSetting.delayForceRebootByDays = $DelayInstallByDays + $InstallWindowInDays - $DelayForceRebootByDays
+        # The backend expects the delayForceRebootByDays to be the delayInstallByDays added to installWindowInDays subtracted by delayForceRebootByDays
+        $ViewFilterSetting.delayForceRebootByDays = $ViewFilterSetting.delayInstallByDays + $ViewFilterSetting.installWindowInDays - $ViewFilterSetting.delayForceRebootByDays
     }
 
     $body = $ViewFilterSetting |
