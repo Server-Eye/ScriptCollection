@@ -249,7 +249,7 @@ function Set-SEViewFilterSetting {
         $ViewFilterSetting.installWindowInDays = $InstallWindowInDays
     }
 
-    if ($DelayInstallByDays) {
+    if (-not ($null -eq $DelayInstallByDays)) {
         $ViewFilterSetting.delayInstallByDays = $DelayInstallByDays
     }
 
