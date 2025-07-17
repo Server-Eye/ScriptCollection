@@ -22,7 +22,7 @@
     Customer ID of the customer where the system should be relocated.
 
     .PARAMETER ParentGuid
-    Container ID of the OCC-Connector where the Sensorhub should be relocated.
+    Container ID of the OCC-Connector where the Sensorhub should be relocated. If the system is an OCC-Connector, or will be relocated as an OCC-Connector, this parameter is not required.
 
     .PARAMETER SecretKey
     SecretKey of the customer where the system should be relocated.
@@ -47,14 +47,17 @@
 Param (
 
     [Parameter(Mandatory = $true)]
+    [ValidateSet("Sensorhub", "OCC-Connector")]
     [string]
     $MoveAs,
 
     [Parameter(Mandatory = $false)]
+    [ValidateSet("true", "false")]
     [string]
     $MoveSensors,
 
     [Parameter(Mandatory = $false)]
+    [ValidateSet("true", "false")]
     [string]
     $RemoveContainer,
 
@@ -287,7 +290,7 @@ function Move-SESensors {
         Log "Getting agents from old container..."
 		$Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldCCId/agents" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
         
-        # API v3 currently has a bug where agent shadows are returned in addition to real sensors so we need to filter them out by making sure the incarnation is "AGENT" and not "SHADOW"
+        # API v3 currently has a bug where agent shadows (Sensorvorschlaege) are returned in addition to real sensors so we need to filter them out by making sure the incarnation is "AGENT" and not "SHADOW"
         $Agents = $Response.Content | ConvertFrom-Json -ErrorAction Stop
         $Agents = $Agents | Where-Object -Property incarnation -eq "AGENT"
 
@@ -441,6 +444,102 @@ function Remove-SEPlannedTasks {
     Log "Removed $i planned tasks."
 }
 
+function Remove-SEAntiRansom {
+    $ARRegPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Safer\CodeIdentifiers"
+    try {
+        Log "Checking Anti-Ransom status..."
+        if ((Get-ItemPropertyValue -Path $ARRegPath -Name DefaultLevel -ErrorAction Stop) -eq "0") {
+            Log "Anti-Ransom is enabled, disabling it..."
+            try {
+                Set-ItemProperty -Path $ARRegPath -Name "DefaultLevel" -Value "262144" -ErrorAction Stop
+                Log "Anti-Ransom has been disabled."
+            }
+            catch {
+                Log "Failed to disable Anti-Ransom. Error: `n$_`n"
+            }
+        }
+        Log "Anti-Ransom is not enabled, no action needed."
+    }
+    catch {
+        Log "Failed to check Anti-Ransom status. Error: `n$_`n"
+    }
+}
+
+Function Remove-SESmartUpdates {
+    $PSINIFilePAth = "C:\Windows\System32\GroupPolicy\Machine\Scripts"
+    $PSINICMDFileName = "scripts.ini"
+    $PSINIPSFileName = "psscripts.ini"
+    $TriggerPatchRun = "C:\Program Files (x86)\Server-Eye\triggerPatchRun.*"
+    $PSCMDINIPath = Join-Path -Path $PSINIFilePAth -ChildPath $PSINICMDFileName
+    $PSPSINIPath = Join-Path -Path $PSINIFilePAth -ChildPath $PSINIPSFileName
+    
+    $PSINIRegPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\State\Machine\Scripts\Shutdown\0"
+    $SURegKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"
+    
+    $Keys = Get-ChildItem -Path $PSINIRegPath
+    $KeyToRemove = Get-ItemProperty -Path $keys.PSPath -Name "Script" | Where-Object -Property Script -like -Value $TriggerPatchRun
+    
+    Log "Removing Smart Updates script from Group Policy and INI files..."
+    if (Test-Path $PSCMDINIPath) {
+        Log "Checking $PSINICMDFileName file for Smart Updates script..."
+        $content = Get-Content $PSCMDINIPath
+        $string = $content | Select-String -Pattern "triggerPatchRun.cmd"
+        if ($string) {
+            $SetNumber = ($string.ToString()).Substring(0, 1)
+            Log "Removing Smart Updates related lines from file..."
+            try {
+                $content | Select-String -Pattern $SetNumber -NotMatch | Set-Content -Path $PSCMDINIPath 
+                Log "Smart Updates related lines removed from $PSINICMDFileName file."
+            }
+            catch {
+                Log "Failed to remove Smart Updates related lines from $PSINICMDFileName file. Error: `n$_`n"
+            }
+        }
+        else {
+            Log "No Smart Updates related lines in file, nothing to remove."
+        }
+    }
+    if (Test-Path $PSPSINIPath) {
+        Log "Checking $PSINIPSFileName file for Smart Updates script..."
+        $content = Get-Content $PSPSINIPath
+        $string = $content | Select-String -Pattern "triggerPatchRun.ps1"
+        if ($string) {
+            $SetNumber = ($string.ToString()).Substring(0, 1)
+            Log "Removing Smart Updates related lines from file..."
+            try {
+                $content | Select-String -Pattern $SetNumber -NotMatch | Set-Content -Path $PSPSINIPath
+                Log "Smart Updates related lines removed from $PSINIPSFileName file."
+            }
+            catch {
+                Log "Failed to remove Smart Updates related lines from $PSINIPSFileName file. Error: `n$_`n"
+            }
+        }
+        else {
+            Log "No Smart Updates related lines in file, nothing to remove."
+        }
+    }
+    
+    Log "Removing Smart Updates script from Group Policy registry key..."
+    if ($KeyToRemove) {
+        if (Test-Path $KeyToRemove.PSPath) {
+            Log "Removing Smart Updates key from Registry"
+            Remove-Item $KeyToRemove.PSPath
+        }
+    }
+
+    Log "Removing Windows Update related Smart Updates registry key..."
+    try {
+        Remove-Item -Path $SURegKey -Recurse -Force -ErrorAction Stop
+        Log "Smart Updates registry key removed."
+    }
+    catch {
+        Log "Failed to remove Smart Updates registry key. Error: `n$_`n"
+    }
+
+    Log "Calling gpupdate.exe to apply changes..."
+    gpupdate.exe /force
+}
+
 function Test-SEForSuccessfulRelocation {
     for ($i = 0; $i -lt 120; $i++) {
         try {
@@ -448,7 +547,7 @@ function Test-SEForSuccessfulRelocation {
             $script:NewCCId = (Get-Content $CCConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
             if ((-not $NewCCId) -or ($NewCCId -eq $OldCCId)) {
                 if ($i -eq 119) {
-                    Log "Failed to get new GUID(s) after 20 minutes, relocation has most likely failed. Terminating script."
+                    Log "Failed to get new Sensorhub GUID after 20 minutes, relocation has most likely failed. Terminating script."
                     exit
                 }
                 Start-Sleep -Seconds 10
@@ -468,7 +567,7 @@ function Test-SEForSuccessfulRelocation {
                 $script:NewMACId = (Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
                 if ((-not $NewMACId) -or ($NewMACId -eq $OldMACId)) {
                     if ($i -eq 119) {
-                        Log "Failed to get new GUID(s) after 20 minutes, relocation has most likely failed. Terminating script."
+                        Log "Failed to get new OCC-Connector GUID after 20 minutes, relocation has most likely failed. Terminating script."
                         exit
                     }
                     Start-Sleep -Seconds 10
@@ -482,7 +581,7 @@ function Test-SEForSuccessfulRelocation {
                 exit
             }
         }
-        Log "Relocation was successful!"
+        Log "Relocation seems to have been successful!"
     }
 }
 
@@ -507,6 +606,8 @@ elseif ((-not $IsOCCConnector) -and ($MoveAs -eq "OCC-Connector")) { ConvertTo-S
 Edit-SEConfigFiles
 Remove-SEDataPath
 Remove-SEPlannedTasks
+Remove-SEAntiRansom
+Remove-SESmartUpdates
 Start-SEServices
 Test-SEForSuccessfulRelocation
 if ($ApiKeyCurrentDistributor -or $ApiKeyNewDistributor) { Copy-SEContainerSettings }
