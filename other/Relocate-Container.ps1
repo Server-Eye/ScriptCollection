@@ -45,7 +45,6 @@
 
 [CmdletBinding()]
 Param (
-
     [Parameter(Mandatory = $true)]
     [ValidateSet("Sensorhub", "OCC-Connector")]
     [string]
@@ -153,7 +152,7 @@ function Edit-SEConfigFiles() {
             $content = [regex]::Replace($content, "^customer=.*$", "customer=$CustomerNumber", "Multiline")
             $content = [regex]::Replace($content, "^secretKey=.*$", "secretKey=$SecretKey", "Multiline")
             $content = [regex]::Replace($content, "^guid=.*$", "guid=", "Multiline")
-            $content | Set-Content $MACConfigPath
+            $content | Set-Content $MACConfigPath -NoNewline
             Log "Successfully modified se3_mac.conf."
         }
         catch {
@@ -170,7 +169,7 @@ function Edit-SEConfigFiles() {
         $content = [regex]::Replace($content, "^parentGuid=.*$", "parentGuid=$ParentGuid", "Multiline")
         $content = [regex]::Replace($content, "^secretKey=.*$", "secretKey=$SecretKey", "Multiline")
         $content = [regex]::Replace($content, "^guid=.*$", "guid=", "Multiline")
-        $content | Set-Content $CCConfigPath
+        $content | Set-Content $CCConfigPath -NoNewline
         Log "Successfully modified se3_cc.conf."
     }
     catch {
@@ -198,7 +197,7 @@ function Start-SEServices() {
             Start-Service "MACService", "SE3Recovery" -ErrorAction Stop
             Log "Started MACService and SE3Recovery."
             Log "Waiting for MACService to generate the new GUID..."
-            for ($i = 1; $i -le 20; $i++) {
+            for ($i = 1; $i -le 120; $i++) {
                 $GuidLine = Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid="
                 if ($null -ne $GuidLine) {
                     $Guid = $GuidLine.ToString().Split("=")[1].Trim()
@@ -207,10 +206,10 @@ function Start-SEServices() {
                         break
                     }
                 }
-                Log "Attempt $($i): GUID is empty or not found, waiting 5 seconds..."
-                Start-Sleep -Seconds 5
-                if ($i -eq 20) {
-                    Log "Failed to get a valid GUID after 20 attempts, relocation has failed. Terminating script."
+                Log "Attempt $($i): GUID is empty or not found, waiting 10 seconds..."
+                Start-Sleep -Seconds 10
+                if ($i -eq 119) {
+                    Log "Failed to get a valid GUID after 20 minutes, relocation has failed. Terminating script."
                     exit
                 }
             }
@@ -235,8 +234,7 @@ function Remove-SEDataPath() {
         Remove-Item -Path $SEDataPath -Recurse -Force -ErrorAction Stop
     }
     catch {
-        Log "There was an issue deleting the ServerEye3 folder:`n$_`nTerminating script."
-        exit
+        Log "There was an issue deleting the ServerEye3 folder:`n$_`nContinuing, since some files might be in use."
     }
 }
 
@@ -269,7 +267,7 @@ function ConvertTo-SEOCCConnector {
         exit
     }
     try {
-        Set-Content -Path $MACConfigPath -Value @"
+        Set-Content -Path $MACConfigPath -NoNewline -Value @"
 customer=$CustomerNumber
 name=
 description=
@@ -364,31 +362,30 @@ function Move-SESensors {
 }
 
 function Copy-SEContainerSettings {
-    Log "Copying container settings for Sensorhub"
+    Log "Copying container settings for Sensorhub..."
 
     try {
         Log "Retrieving container settings..."
         $Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldCCId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
         $ResponseContent = $Response.Content | ConvertFrom-Json -ErrorAction Stop
         Log "Container settings retrieved."
+        try {
+            Log "Applying container settings..."
+            $Body = @{
+                name = $ResponseContent.name
+                alertOffline = $ResponseContent.settings.alertOffline
+                alertShutdown = $ResponseContent.settings.alertShutdown
+                maxHeartbeatTimeout = $ResponseContent.settings.maxHeartbeatTimeout
+            } | ConvertTo-Json
+            $Response = Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/container/$NewCCId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+            Log "Container settings applied."
+        }
+        catch {
+            Log "Error while applying container settings. Error: `n$_`n"
+        }
     }
     catch {
         Log "Failed to retrieve Sensorhub settings. Error: `n$_`n"
-    }
-
-    try {
-        Log "Applying container settings..."
-        $Body = @{
-            name = $ResponseContent.name
-            alertOffline = $ResponseContent.settings.alertOffline
-            alertShutdown = $ResponseContent.settings.alertShutdown
-            maxHeartbeatTimeout = $ResponseContent.settings.maxHeartbeatTimeout
-        } | ConvertTo-Json
-        $Response = Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/container/$NewCCId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
-        Log "Container settings applied."
-    }
-    catch {
-        Log "Error while applying container settings. Error: `n$_`n"
     }
 
     if ($IsOCCConnector -and ($MoveAs -eq "OCC-Connector")) {
@@ -399,24 +396,23 @@ function Copy-SEContainerSettings {
             $Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldMACId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
             $ResponseContent = $Response.Content | ConvertFrom-Json -ErrorAction Stop
             Log "Container settings retrieved."
+            try {
+                Log "Applying container settings..."
+                $Body = @{
+                    name = $Response.Content.name
+                    alertOffline = $ResponseContent.settings.alertOffline
+                    alertShutdown = $ResponseContent.settings.alertShutdown
+                    maxHeartbeatTimeout = $ResponseContent.settings.maxHeartbeatTimeout
+                } | ConvertTo-Json
+                Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/container/$NewMACId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+                Log "Container settings applied."
+            }
+            catch {
+                Log "Error while applying container settings. Error: `n$_`n"
+            }
         }
         catch {
             Log "Failed to retrieve OCC-Connector settings. Error: `n$_`n"
-        }
-
-        try {
-            Log "Applying container settings..."
-            $Body = @{
-                name = $Response.Content.name
-                alertOffline = $ResponseContent.settings.alertOffline
-                alertShutdown = $ResponseContent.settings.alertShutdown
-                maxHeartbeatTimeout = $ResponseContent.settings.maxHeartbeatTimeout
-            } | ConvertTo-Json
-            Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/container/$NewMACId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
-            Log "Container settings applied."
-        }
-        catch {
-            Log "Error while applying container settings. Error: `n$_`n"
         }
     }
 }
@@ -430,6 +426,7 @@ function Remove-SEPlannedTasks {
         Log "Failed to import ScheduledTasks Module, servereye Tasks were not deleted on this system. Error: `n$_`n"
     }
     $Tasks = Get-ScheduledTask -TaskPath "\Server-Eye Tasks" -ErrorAction SilentlyContinue
+    $i = 0;
     foreach ($Task in $Tasks) {
         try {
             $ProgressPreference = "SilentlyContinue"
@@ -465,7 +462,7 @@ function Remove-SEAntiRansom {
     }
 }
 
-Function Remove-SESmartUpdates {
+function Remove-SESmartUpdates {
     $PSINIFilePAth = "C:\Windows\System32\GroupPolicy\Machine\Scripts"
     $PSINICMDFileName = "scripts.ini"
     $PSINIPSFileName = "psscripts.ini"
@@ -476,8 +473,8 @@ Function Remove-SESmartUpdates {
     $PSINIRegPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\State\Machine\Scripts\Shutdown\0"
     $SURegKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"
     
-    $Keys = Get-ChildItem -Path $PSINIRegPath
-    $KeyToRemove = Get-ItemProperty -Path $keys.PSPath -Name "Script" | Where-Object -Property Script -like -Value $TriggerPatchRun
+    $Keys = Get-ChildItem -Path $PSINIRegPath -ErrorAction SilentlyContinue
+    $KeyToRemove = Get-ItemProperty -Path $keys.PSPath -Name "Script" -ErrorAction SilentlyContinue | Where-Object -Property Script -like -Value $TriggerPatchRun
     
     Log "Removing Smart Updates script from Group Policy and INI files..."
     if (Test-Path $PSCMDINIPath) {
@@ -488,7 +485,7 @@ Function Remove-SESmartUpdates {
             $SetNumber = ($string.ToString()).Substring(0, 1)
             Log "Removing Smart Updates related lines from file..."
             try {
-                $content | Select-String -Pattern $SetNumber -NotMatch | Set-Content -Path $PSCMDINIPath 
+                $content | Select-String -Pattern $SetNumber -NotMatch | Set-Content -Path $PSCMDINIPath -NoNewline
                 Log "Smart Updates related lines removed from $PSINICMDFileName file."
             }
             catch {
@@ -507,7 +504,7 @@ Function Remove-SESmartUpdates {
             $SetNumber = ($string.ToString()).Substring(0, 1)
             Log "Removing Smart Updates related lines from file..."
             try {
-                $content | Select-String -Pattern $SetNumber -NotMatch | Set-Content -Path $PSPSINIPath
+                $content | Select-String -Pattern $SetNumber -NotMatch | Set-Content -Path $PSPSINIPath -NoNewline
                 Log "Smart Updates related lines removed from $PSINIPSFileName file."
             }
             catch {
@@ -574,6 +571,11 @@ function Test-SEForSuccessfulRelocation {
                     continue
                 }
                 Log "New OCC-Connector GUID: $NewMACId"
+
+                # Sleep for a bit to let MACService sort things out for itself, since CCService will grab the wrong parentGuid down the line if we don't.
+                # This isn't pretty but so far we haven't found a proper check for this.
+                Start-Sleep -Seconds 10
+                
                 break
             }
             catch {
