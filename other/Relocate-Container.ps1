@@ -5,7 +5,7 @@
     
     .DESCRIPTION
     Relocates a Sensorhub or OCC-Connector by modifying the configuration files (se3_cc.conf and optionally se3_mac.conf) in the servereye directory.
-    The script stops the servereye services, updates the configuration files with the provided customerID, parentGUID, and secretKey, and restarts the services.
+    The script stops the servereye services, updates the configuration files with the provided CustomerNumber, ParentGuid, and SecretKey, and restarts the services.
     It also supports additional functionality such as moving agents (sensors) to the new container, copying container settings, removing the old container, and handling OCC-Connector-specific configurations.
     Depending on the parameters provided, the script can also convert a system between Sensorhub and OCC-Connector.
 
@@ -15,24 +15,29 @@
     .PARAMETER MoveSensors
     Indicates whether the agents (sensors) should also be moved to the new container. Pass "true" to move sensors, otherwise leave empty.
 
+    .PARAMETER CopyContainerSettings
+    Indicates whether the container settings should be copied from the old container(s) to the new one. Pass "true" to copy settings, otherwise leave empty.
+
     .PARAMETER RemoveContainer
     Indicates whether the old container should be removed after relocation. Pass "true" to remove the Sensorhub container, otherwise leave empty.
 
     .PARAMETER CustomerNumber
-    Customer ID of the customer where the system should be relocated.
+    CustomerNumber of the customer where the system should be relocated.
 
     .PARAMETER ParentGuid
-    Container ID of the OCC-Connector where the Sensorhub should be relocated. If the system is an OCC-Connector, or will be relocated as an OCC-Connector, this parameter is not required.
+    ContainerID of the OCC-Connector where the Sensorhub should be relocated. If the system is an OCC-Connector, or will be relocated as an OCC-Connector, this parameter is not required.
 
     .PARAMETER SecretKey
     SecretKey of the customer where the system should be relocated.
 
     .PARAMETER ApiKeyCurrentDistributor
     The API key of the current distributor. This is required to authenticate API calls for the current distributor.
+    Note: You only need to provide this if you are using one of these parameters: MoveSensors, RemoveContainer
 
     .PARAMETER ApiKeyNewDistributor
     The API key of the new distributor. If not provided, the current distributor's API key will be used.
     This parameter doesn't need to be provided if the distributor stays the same.
+    Note: You only need to provide this if you are using one of these parameters: MoveSensors, RemoveContainer
 
     .NOTES
     Author  : servereye
@@ -54,6 +59,11 @@ Param (
     [ValidateSet("true", "false")]
     [string]
     $MoveSensors,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("true", "false")]
+    [string]
+    $CopyContainerSettings,
 
     [Parameter(Mandatory = $false)]
     [ValidateSet("true", "false")]
@@ -621,7 +631,7 @@ Remove-SEAntiRansom
 Remove-SESmartUpdates
 Start-SEServices
 Test-SEForSuccessfulRelocation
-if ($ApiKeyCurrentDistributor -or $ApiKeyNewDistributor) { Copy-SEContainerSettings }
+if (($CopyContainerSettings -eq "true") -and ($ApiKeyCurrentDistributor -or $ApiKeyNewDistributor)) { Copy-SEContainerSettings }
 if (($MoveSensors -eq "true") -and ($ApiKeyCurrentDistributor -or $ApiKeyNewDistributor)) { Move-SESensors }
 if (($RemoveContainer -eq "true") -and ($ApiKeyCurrentDistributor -or $ApiKeyNewDistributor)) { Remove-SESensorhubContainer }
 Log "### Relocate-Container.ps1 script finished. ###"
