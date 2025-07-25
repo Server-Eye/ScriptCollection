@@ -192,7 +192,7 @@ function Stop-SEServices() {
 
 function Start-SEServices() {
     try {
-        if ($IsOCCConnector -or ($MoveAs -eq "OCC-Connector")) {
+        if (($IsOCCConnector -or ($MoveAs -eq "OCC-Connector")) -and -not ($MoveAs -eq "Sensorhub")) {
             Log "Starting the needed services and waiting for new OCC-Connector GUID..."
             Start-Service "MACService", "SE3Recovery" -ErrorAction Stop
             Log "Started MACService and SE3Recovery."
@@ -208,8 +208,8 @@ function Start-SEServices() {
                 }
                 Log "Attempt $($i): GUID is empty or not found, waiting 10 seconds..."
                 Start-Sleep -Seconds 10
-                if ($i -eq 119) {
-                    Log "Failed to get a valid GUID after 20 minutes, relocation has failed. Terminating script."
+                if ($i -eq 120) {
+                    Log "Failed to get new OCC-Connector GUID after 20 minutes, relocation has failed. Terminating script."
                     exit
                 }
             }
@@ -239,7 +239,7 @@ function Remove-SEDataPath() {
 }
 
 function ConvertTo-SESensorhub {
-    Log "Disabling OCC-Connector service and deleting se3_mac.conf since -DeployAsSensorhub was passed..."
+    Log "Disabling OCC-Connector service and deleting se3_mac.conf since -MoveAs 'Sensorhub' was passed..."
     try {
         Set-Service "MACService" -StartupType Disabled -ErrorAction Stop
     }
@@ -247,6 +247,7 @@ function ConvertTo-SESensorhub {
         Log "There was an issue disabling the OCC-Connector service:`n$_`nTerminating script."
         exit
     }
+
     try {
         Remove-Item -Path $MACConfigPath -Force -ErrorAction Stop
     }
@@ -296,8 +297,7 @@ function Move-SESensors {
         $Agents | ForEach-Object { Log "- $($_.name)" }
 	}
     catch {
-        Log "Failed to get agents from old container. Error: `n$_`nTerminating script."
-        exit
+        Log "Failed to get agents from old container. Error: `n$_`n"
 	}
 
     foreach ($Agent in $Agents) {
@@ -463,12 +463,12 @@ function Remove-SEAntiRansom {
 }
 
 function Remove-SESmartUpdates {
-    $PSINIFilePAth = "C:\Windows\System32\GroupPolicy\Machine\Scripts"
+    $PSINIFilePath = "C:\Windows\System32\GroupPolicy\Machine\Scripts"
     $PSINICMDFileName = "scripts.ini"
     $PSINIPSFileName = "psscripts.ini"
     $TriggerPatchRun = "C:\Program Files (x86)\Server-Eye\triggerPatchRun.*"
-    $PSCMDINIPath = Join-Path -Path $PSINIFilePAth -ChildPath $PSINICMDFileName
-    $PSPSINIPath = Join-Path -Path $PSINIFilePAth -ChildPath $PSINIPSFileName
+    $PSCMDINIPath = Join-Path -Path $PSINIFilePath -ChildPath $PSINICMDFileName
+    $PSPSINIPath = Join-Path -Path $PSINIFilePath -ChildPath $PSINIPSFileName
     
     $PSINIRegPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Group Policy\State\Machine\Scripts\Shutdown\0"
     $SURegKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"
@@ -519,7 +519,7 @@ function Remove-SESmartUpdates {
     Log "Removing Smart Updates script from Group Policy registry key..."
     if ($KeyToRemove) {
         if (Test-Path $KeyToRemove.PSPath) {
-            Log "Removing Smart Updates key from Registry"
+            Log "Removing Smart Updates key from Registry..."
             Remove-Item $KeyToRemove.PSPath
         }
     }
@@ -538,13 +538,13 @@ function Remove-SESmartUpdates {
 }
 
 function Test-SEForSuccessfulRelocation {
-    for ($i = 0; $i -lt 120; $i++) {
+    for ($i = 1; $i -le 120; $i++) {
         try {
-            Log "Attempt $($i + 1): Getting new Sensorhub GUID..."
+            Log "Attempt $($i): Getting new Sensorhub GUID..."
             $script:NewCCId = (Get-Content $CCConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
             if ((-not $NewCCId) -or ($NewCCId -eq $OldCCId)) {
-                if ($i -eq 119) {
-                    Log "Failed to get new Sensorhub GUID after 20 minutes, relocation has most likely failed. Terminating script."
+                if ($i -eq 120) {
+                    Log "Failed to get new Sensorhub GUID after 20 minutes, relocation has failed. Terminating script."
                     exit
                 }
                 Start-Sleep -Seconds 10
@@ -554,7 +554,7 @@ function Test-SEForSuccessfulRelocation {
             break
         }
         catch {
-            Log "Failed to retrieve new Sensorhub GUID. Terminating script. Error: `n$_`n"
+            Log "Failed to retrieve new Sensorhub GUID. Error: `n$_`nTerminating script."
             exit
         }
 
@@ -563,7 +563,7 @@ function Test-SEForSuccessfulRelocation {
                 Log "Attempt $($i + 1): Getting new OCC-Connector GUID..."
                 $script:NewMACId = (Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
                 if ((-not $NewMACId) -or ($NewMACId -eq $OldMACId)) {
-                    if ($i -eq 119) {
+                    if ($i -eq 120) {
                         Log "Failed to get new OCC-Connector GUID after 20 minutes, relocation has most likely failed. Terminating script."
                         exit
                     }
@@ -579,7 +579,7 @@ function Test-SEForSuccessfulRelocation {
                 break
             }
             catch {
-                Log "Failed to retrieve new OCC-Connector GUID. Terminating script. Error: `n$_`n"
+                Log "Failed to retrieve new OCC-Connector GUID. Error: `n$_`nTerminating script."
                 exit
             }
         }
