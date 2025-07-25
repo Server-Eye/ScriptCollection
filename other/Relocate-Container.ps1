@@ -519,18 +519,28 @@ function Remove-SESmartUpdates {
     Log "Removing Smart Updates script from Group Policy registry key..."
     if ($KeyToRemove) {
         if (Test-Path $KeyToRemove.PSPath) {
-            Log "Removing Smart Updates key from Registry..."
-            Remove-Item $KeyToRemove.PSPath
+            try {
+                Log "Removing Smart Updates key from Registry..."
+                Remove-Item $KeyToRemove.PSPath
+                Log "Smart Updates key removed from Registry."
+            }
+            catch {
+                Log "Failed to remove Smart Updates key from Registry. Error: `n$_`n"
+            }
         }
     }
 
     Log "Removing Windows Update related Smart Updates registry key..."
-    try {
-        Remove-Item -Path $SURegKey -Recurse -Force -ErrorAction Stop
-        Log "Smart Updates registry key removed."
-    }
-    catch {
-        Log "Failed to remove Smart Updates registry key. Error: `n$_`n"
+    if (Test-Path $SURegKey) {
+        try {
+            Remove-Item -Path $SURegKey -Recurse -Force -ErrorAction Stop
+            Log "Windows Update related Smart Updates registry key removed."
+        }
+        catch {
+            Log "Failed to remove Windows Update related Smart Updates registry key. Error: `n$_`n"
+        }
+    } else {
+        Log "Windows Update related Smart Updates registry key not found, nothing to remove."
     }
 
     Log "Calling gpupdate.exe to apply changes..."
@@ -595,7 +605,6 @@ function Remove-SESensorhubContainer {
     }
     catch {
         Log "Failed to remove old Sensorhub container. Error: `n$_`n"
-        continue
     }
 }
 #endregion
