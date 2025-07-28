@@ -116,7 +116,9 @@ if (-not $ApiKeyNewDistributor) {
 
 # Get the current GUID(s)
 $OldCCId = (Get-Content $CCConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
-if ($IsOCCConnector) { $OldMACId  = (Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim() }
+if ($IsOCCConnector) {
+    $OldMACId  = (Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
+}
 
 #Logfile path
 $Logpath = "$env:windir\Temp\Relocate-Container.log"
