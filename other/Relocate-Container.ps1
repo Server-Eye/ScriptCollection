@@ -137,8 +137,8 @@ function Test-SEServiceStop() {
     $SECCService = Get-Service -Name CCService
     $SEMACService = Get-Service -Name MACService
     $SERecovery = Get-Service -Name SE3Recovery
-    for ($i = 0; $i -le 20; $i++) {
-        if ($i -eq 20) {
+    for ($i = 0; $i -le 6; $i++) {
+        if ($i -eq 6) {
             Log "Failed to stop all services after 60 seconds. Terminating script."
             exit
         }
@@ -151,7 +151,7 @@ function Test-SEServiceStop() {
             break
         }
     
-        Start-Sleep -Seconds 3
+        Start-Sleep -Seconds 10
     }    
 }
 
