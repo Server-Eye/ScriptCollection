@@ -205,9 +205,9 @@ function Stop-SEServices() {
 function Start-SEServices() {
     try {
         if (($IsOCCConnector -or ($MoveAs -eq "OCC-Connector")) -and -not ($MoveAs -eq "Sensorhub")) {
-            Log "Starting the needed services and waiting for new OCC-Connector GUID..."
-            Start-Service "MACService", "SE3Recovery" -ErrorAction Stop
-            Log "Started MACService and SE3Recovery."
+            Log "Starting MACService and waiting for new OCC-Connector GUID..."
+            Start-Service "MACService" -ErrorAction Stop
+            Log "Started MACService."
             Log "Waiting for MACService to generate the new GUID..."
             for ($i = 1; $i -le 120; $i++) {
                 $GuidLine = Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid="
@@ -225,9 +225,14 @@ function Start-SEServices() {
                     exit
                 }
             }
-            Log "Starting CCService..."
-            Start-Service "CCService" -ErrorAction Stop
-            Log "Started CCService."
+
+            # Sleep for a bit to let MACService sort things out for itself, since CCService will grab the wrong parentGuid down the line if we don't.
+            # This isn't pretty but so far we haven't found a proper check for this.
+            Start-Sleep -Seconds 10
+
+            Log "Starting CCService and SE3Recovery..."
+            Start-Service "CCService", "SE3Recovery" -ErrorAction Stop
+            Log "Started CCService and SE3Recovery."
         } else {
             Log "Starting the needed services..."
             Start-Service "CCService", "SE3Recovery" -ErrorAction Stop
@@ -560,9 +565,12 @@ function Remove-SESmartUpdates {
 }
 
 function Test-SEForSuccessfulRelocation {
+    Log "Testing if relocation was successful..."
+
+    Log "Waiting for CCService to generate the new GUID..."
     for ($i = 1; $i -le 120; $i++) {
         try {
-            Log "Attempt $($i): Getting new Sensorhub GUID..."
+            Log "Attempt $($i): GUID is empty or not found, waiting 10 seconds..."
             $script:NewCCId = (Get-Content $CCConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
             if ((-not $NewCCId) -or ($NewCCId -eq $OldCCId)) {
                 if ($i -eq 120) {
@@ -579,25 +587,23 @@ function Test-SEForSuccessfulRelocation {
             Log "Failed to retrieve new Sensorhub GUID. Error: `n$_`nTerminating script."
             exit
         }
+    }
 
-        if ($MoveAs -eq "OCC-Connector") {
+    if ($MoveAs -eq "OCC-Connector") {
+        Log "Waiting for MACService to generate the new OCC-Connector GUID..."
+        for ($i = 1; $i -le 120; $i++) {
             try {
-                Log "Attempt $($i + 1): Getting new OCC-Connector GUID..."
+                Log "Attempt $($i): Getting new OCC-Connector GUID..."
                 $script:NewMACId = (Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
                 if ((-not $NewMACId) -or ($NewMACId -eq $OldMACId)) {
                     if ($i -eq 120) {
-                        Log "Failed to get new OCC-Connector GUID after 20 minutes, relocation has most likely failed. Terminating script."
+                        Log "Failed to get new OCC-Connector GUID after 20 minutes, relocation has failed. Terminating script."
                         exit
                     }
                     Start-Sleep -Seconds 10
                     continue
                 }
                 Log "New OCC-Connector GUID: $NewMACId"
-
-                # Sleep for a bit to let MACService sort things out for itself, since CCService will grab the wrong parentGuid down the line if we don't.
-                # This isn't pretty but so far we haven't found a proper check for this.
-                Start-Sleep -Seconds 10
-                
                 break
             }
             catch {
@@ -605,8 +611,9 @@ function Test-SEForSuccessfulRelocation {
                 exit
             }
         }
-        Log "Relocation seems to have been successful!"
     }
+    
+    Log "Relocation seems to have been successful!"
 }
 
 function Remove-SESensorhubContainer {
