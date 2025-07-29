@@ -32,20 +32,20 @@
 
     .PARAMETER ApiKeyCurrentDistributor
     The API key of the current distributor. This is required to authenticate API calls for the current distributor.
-    Note: You only need to provide this if you are using one of these parameters: MoveSensors, RemoveContainer
+    Note: You only need to provide this if you are using one of these parameters: MoveSensors, CopyContainerSettings, RemoveContainer
 
     .PARAMETER ApiKeyNewDistributor
     The API key of the new distributor. If not provided, the current distributor's API key will be used.
     This parameter doesn't need to be provided if the distributor stays the same.
-    Note: You only need to provide this if you are using one of these parameters: MoveSensors, RemoveContainer
+    Note: You only need to provide this if you are using one of these parameters: MoveSensors, CopyContainerSettings, RemoveContainer
 
     .NOTES
     Author  : servereye
     Version : 1.3
 
     .EXAMPLE
-    PS> .\Relocate-Container.ps1 -CustomerNumber 42569786 -ParentGuid 4f1kg420-2315-28he-89bc-509s20b25f76 -SecretKey e12ejgcf-d491-9892-bg83-95ka457938c2
-    Relocates the container to the specified customer with the given parent GUID and secret key.
+    PS> .\Relocate-Container.ps1 -MoveAs 'Sensorhub' -CustomerNumber '42569786' -ParentGuid '4f1kg420-2315-28he-89bc-509s20b25f76' -SecretKey 'e12ejgcf-d491-9892-bg83-95ka457938c2'
+    Relocates a container to the specified customer with the given parent GUID and secret key.
 #>
 
 [CmdletBinding()]
