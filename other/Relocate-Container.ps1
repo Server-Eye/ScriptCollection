@@ -350,6 +350,13 @@ function Move-SESensors {
 
         Log "Setting main settings of agent '$($Agent.name)'..."
         foreach ($Setting in $Agent.settings) {
+
+            # Make sure we don't try to set the value of a password field. Password strings are always encrypted to have a "==PK|" prefix, so we can skip to the next setting if this is the case.
+            if ($Setting.settingsValue -like "==PK|*") {
+                Log "Setting '$($Setting.settingsKey)' of agent '$($Agent.name)' was skipped since this is a password field!"
+                continue
+            }
+
             try {
                 $Body = $Setting | Select-Object -Property settingsId, settingsValue | ConvertTo-Json
                 # Retry up to 5 times in case the agent is not yet available
