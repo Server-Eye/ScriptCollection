@@ -210,6 +210,7 @@ function Start-SEServices() {
             Log "Started MACService."
             Log "Waiting for MACService to generate the new GUID..."
             for ($i = 1; $i -le 120; $i++) {
+                Start-Sleep -Seconds 10
                 $GuidLine = Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid="
                 if ($null -ne $GuidLine) {
                     $Guid = $GuidLine.ToString().Split("=")[1].Trim()
@@ -219,7 +220,6 @@ function Start-SEServices() {
                     }
                 }
                 Log "Attempt $($i): GUID is empty or not found, waiting 10 seconds..."
-                Start-Sleep -Seconds 10
                 if ($i -eq 120) {
                     Log "Failed to get new OCC-Connector GUID after 20 minutes, relocation has failed. Terminating script."
                     exit
@@ -248,6 +248,7 @@ function Start-SEServices() {
 
 function Remove-SEDataPath() {
     try {
+        Start-Sleep -Seconds 3
         Remove-Item -Path $SEDataPath -Recurse -Force -ErrorAction Stop
     }
     catch {
@@ -304,7 +305,7 @@ function Move-SESensors {
     Log "Moving agents to new container"
     try {
         Log "Getting agents from old container..."
-		$Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldCCId/agents" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
+		$Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldCCId/agents" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -UseBasicParsing -ErrorAction Stop
         
         # API v3 currently has a bug where agent shadows (Sensorvorschlaege) are returned in addition to real sensors so we need to filter them out by making sure the incarnation is "AGENT" and not "SHADOW"
         $Agents = $Response.Content | ConvertFrom-Json -ErrorAction Stop
@@ -320,13 +321,17 @@ function Move-SESensors {
     foreach ($Agent in $Agents) {
         try {
             Log "Adding agent '$($Agent.name)' to container..."
+
             $Body = @{
                 parentId = $NewCCId
                 type = $Agent.type.agentType
                 agentType = $Agent.type.agentType # The v3 agent route requires this property for some reason, even though it seems to be the same as the type property
                 name = $Agent.name
             } | ConvertTo-Json
-            $Response = Invoke-WebRequest -Method Post -Uri "https://api.server-eye.de/3/agent" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+
+            $Utf8Bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+
+            $Response = Invoke-WebRequest -Method Post -Uri "https://api.server-eye.de/3/agent" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Utf8Bytes -ContentType "application/json" -ErrorAction Stop
             $NewAgentId = ($Response.Content | ConvertFrom-Json -ErrorAction Stop).agentId
             Log "Agent '$($Agent.name)' added to container."
         }
@@ -341,7 +346,8 @@ function Move-SESensors {
                 interval = $Agent.interval
                 pause = $Agent.pause
             } | ConvertTo-Json
-            $Response = Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/agent/$NewAgentId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+            
+            $Response = Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/agent/$NewAgentId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json; charset=utf-8" -UseBasicParsing -ErrorAction Stop
             Log "Interval and pause times set for agent '$($Agent.name)'."
         }
         catch {
@@ -359,11 +365,14 @@ function Move-SESensors {
 
             try {
                 $Body = $Setting | Select-Object -Property settingsId, settingsValue | ConvertTo-Json
+
+                $Utf8Bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+
                 # Retry up to 5 times in case the agent is not yet available
                 $maxTries = 5
                 for ($try = 1; $try -le $maxTries; $try++) {
                     try {
-                        $Response = Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/agent/$NewAgentId/setting/$($Setting.settingsKey)" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+                        $Response = Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/agent/$NewAgentId/setting/$($Setting.settingsKey)" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Utf8Bytes -ContentType "application/json; charset=utf-8" -UseBasicParsing -ErrorAction Stop
                         Log "Setting '$($Setting.settingsKey)' of agent '$($Agent.name)' set to '$($Setting.settingsValue)'."
                         break
                     }
@@ -390,18 +399,22 @@ function Copy-SEContainerSettings {
 
     try {
         Log "Retrieving container settings..."
-        $Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldCCId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
+        $Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldCCId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -UseBasicParsing -ErrorAction Stop
         $ResponseContent = $Response.Content | ConvertFrom-Json -ErrorAction Stop
         Log "Container settings retrieved."
         try {
             Log "Applying container settings..."
+
             $Body = @{
                 name = $ResponseContent.name
                 alertOffline = $ResponseContent.settings.alertOffline
                 alertShutdown = $ResponseContent.settings.alertShutdown
                 maxHeartbeatTimeout = $ResponseContent.settings.maxHeartbeatTimeout
             } | ConvertTo-Json
-            $Response = Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/container/$NewCCId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+
+            $Utf8Bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+
+            Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/container/$NewCCId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Utf8Bytes -ContentType "application/json; charset=utf-8" -UseBasicParsing -ErrorAction Stop | Out-Null
             Log "Container settings applied."
         }
         catch {
@@ -417,18 +430,22 @@ function Copy-SEContainerSettings {
 
         try {
             Log "Retrieving container settings..."
-            $Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldMACId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop
+            $Response = Invoke-WebRequest -Method Get -Uri "https://api.server-eye.de/3/container/$OldMACId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -UseBasicParsing -ErrorAction Stop
             $ResponseContent = $Response.Content | ConvertFrom-Json -ErrorAction Stop
             Log "Container settings retrieved."
             try {
                 Log "Applying container settings..."
+
                 $Body = @{
-                    name = $Response.Content.name
+                    name = $ResponseContent.name
                     alertOffline = $ResponseContent.settings.alertOffline
                     alertShutdown = $ResponseContent.settings.alertShutdown
                     maxHeartbeatTimeout = $ResponseContent.settings.maxHeartbeatTimeout
                 } | ConvertTo-Json
-                Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/container/$NewMACId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Body -ContentType "application/json" -ErrorAction Stop
+
+                $Utf8Bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+
+                Invoke-WebRequest -Method Put -Uri "https://api.server-eye.de/3/container/$NewMACId" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Utf8Bytes -ContentType "application/json; charset=utf-8" -UseBasicParsing -ErrorAction Stop
                 Log "Container settings applied."
             }
             catch {
@@ -498,7 +515,9 @@ function Remove-SESmartUpdates {
     $SURegKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"
     
     $Keys = Get-ChildItem -Path $PSINIRegPath -ErrorAction SilentlyContinue
-    $KeyToRemove = Get-ItemProperty -Path $keys.PSPath -Name "Script" -ErrorAction SilentlyContinue | Where-Object -Property Script -like -Value $TriggerPatchRun
+    if ($Keys -and $Keys.PSPath) {
+        $KeyToRemove = Get-ItemProperty -Path $Keys.PSPath -Name "Script" -ErrorAction SilentlyContinue | Where-Object -Property Script -like -Value $TriggerPatchRun
+    }
     
     Log "Removing Smart Updates script from Group Policy and INI files..."
     if (Test-Path $PSCMDINIPath) {
@@ -577,14 +596,14 @@ function Test-SEForSuccessfulRelocation {
     Log "Waiting for CCService to generate the new GUID..."
     for ($i = 1; $i -le 120; $i++) {
         try {
-            Log "Attempt $($i): GUID is empty or not found, waiting 10 seconds..."
+            Log "Attempt $($i): Getting new Sensorhub GUID..."
+            Start-Sleep -Seconds 10
             $script:NewCCId = (Get-Content $CCConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
             if ((-not $NewCCId) -or ($NewCCId -eq $OldCCId)) {
                 if ($i -eq 120) {
                     Log "Failed to get new Sensorhub GUID after 20 minutes, relocation has failed. Terminating script."
                     exit
                 }
-                Start-Sleep -Seconds 10
                 continue
             }
             Log "New Sensorhub GUID: $NewCCId"
@@ -601,13 +620,13 @@ function Test-SEForSuccessfulRelocation {
         for ($i = 1; $i -le 120; $i++) {
             try {
                 Log "Attempt $($i): Getting new OCC-Connector GUID..."
+                Start-Sleep -Seconds 10
                 $script:NewMACId = (Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
                 if ((-not $NewMACId) -or ($NewMACId -eq $OldMACId)) {
                     if ($i -eq 120) {
                         Log "Failed to get new OCC-Connector GUID after 20 minutes, relocation has failed. Terminating script."
                         exit
                     }
-                    Start-Sleep -Seconds 10
                     continue
                 }
                 Log "New OCC-Connector GUID: $NewMACId"
@@ -626,7 +645,7 @@ function Test-SEForSuccessfulRelocation {
 function Remove-SESensorhubContainer {
     Log "Removing old Sensorhub container..."
     try {
-        Invoke-WebRequest -Method Delete -Uri "https://api.server-eye.de/3/container/$OldCCId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -ErrorAction Stop | Out-Null
+        Invoke-WebRequest -Method Delete -Uri "https://api.server-eye.de/3/container/$OldCCId" -Headers @{ "x-api-key" = $ApiKeyCurrentDistributor } -UseBasicParsing -ErrorAction Stop | Out-Null
         Log "Old Sensorhub container removed."
     }
     catch {
