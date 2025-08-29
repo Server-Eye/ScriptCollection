@@ -331,7 +331,7 @@ function Move-SESensors {
 
             $Utf8Bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
 
-            $Response = Invoke-WebRequest -Method Post -Uri "https://api.server-eye.de/3/agent" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Utf8Bytes -ContentType "application/json" -ErrorAction Stop
+            $Response = Invoke-WebRequest -Method Post -Uri "https://api.server-eye.de/3/agent" -Headers @{ "x-api-key" = $ApiKeyNewDistributor } -Body $Utf8Bytes -ContentType "application/json" -UseBasicParsing -ErrorAction Stop
             $NewAgentId = ($Response.Content | ConvertFrom-Json -ErrorAction Stop).agentId
             Log "Agent '$($Agent.name)' added to container."
         }
