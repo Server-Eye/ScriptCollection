@@ -133,28 +133,6 @@ function Log {
     Write-Host $LogMessage
 }
 
-function Test-SEServiceStop() {
-    $SECCService = Get-Service -Name CCService
-    $SEMACService = Get-Service -Name MACService
-    $SERecovery = Get-Service -Name SE3Recovery
-    for ($i = 0; $i -le 6; $i++) {
-        if ($i -eq 6) {
-            Log "Failed to stop all services after 60 seconds. Terminating script."
-            exit
-        }
-
-        $SECCService = Get-Service -Name CCService
-        $SEMACService = Get-Service -Name MACService
-        $SERecovery = Get-Service -Name SE3Recovery
-    
-        if (($SECCService.Status -eq "Stopped") -and ($SEMACService.Status -eq "Stopped") -and ($SERecovery.Status -eq "Stopped")) {
-            break
-        }
-    
-        Start-Sleep -Seconds 10
-    }    
-}
-
 function Edit-SEConfigFiles() {
     if (($IsOCCConnector) -and ($MoveAs -eq "OCC-Connector")) {
         try {
@@ -192,14 +170,30 @@ function Edit-SEConfigFiles() {
 
 function Stop-SEServices() {
     Log "Making sure all servereye services are stopped..."
-    if ($IsOCCConnector) {
-        Stop-Service "SE3Recovery", "MACService", "CCService" -ErrorAction SilentlyContinue
-    } else {
-        Stop-Service "SE3Recovery", "CCService" -ErrorAction SilentlyContinue
+    for ($i = 0; $i -le 5; $i++) {
+        Log "Attempt $($i): Stopping services..."
+        if ($i -eq 5) {
+            Log "Failed to stop all services after 5 tries. Terminating script."
+            exit
+        }
+
+        if ($IsOCCConnector) {
+            Stop-Service "SE3Recovery", "MACService", "CCService" -ErrorAction SilentlyContinue
+        } else {
+            Stop-Service "SE3Recovery", "CCService" -ErrorAction SilentlyContinue
+        }
+
+        $SECCService = Get-Service -Name CCService
+        $SEMACService = Get-Service -Name MACService
+        $SERecovery = Get-Service -Name SE3Recovery
+    
+        if (($SECCService.Status -eq "Stopped") -and ($SEMACService.Status -eq "Stopped") -and ($SERecovery.Status -eq "Stopped")) {
+            Log "All services are stopped."
+            return
+        }
+    
+        Start-Sleep -Seconds 10
     }
-    Test-SEServiceStop
-    if ($?) {Log "Stopped all services."}
-    else {Log "Services are already stopped."}
 }
 
 function Start-SEServices() {
