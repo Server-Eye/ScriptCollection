@@ -170,10 +170,10 @@ function Edit-SEConfigFiles() {
 
 function Stop-SEServices() {
     Log "Making sure all servereye services are stopped..."
-    for ($i = 0; $i -le 5; $i++) {
+    for ($i = 0; $i -le 3; $i++) {
         Log "Attempt $($i): Stopping services..."
-        if ($i -eq 5) {
-            Log "Failed to stop all services after 5 tries. Terminating script."
+        if ($i -eq 3) {
+            Log "Failed to stop all services after 3 tries. Terminating script."
             exit
         }
 
@@ -183,16 +183,25 @@ function Stop-SEServices() {
             Stop-Service "SE3Recovery", "CCService" -ErrorAction SilentlyContinue
         }
 
-        $SECCService = Get-Service -Name CCService
-        $SEMACService = Get-Service -Name MACService
-        $SERecovery = Get-Service -Name SE3Recovery
+        $SECCService = Get-Service -Name CCService -ErrorAction SilentlyContinue
+        $SEMACService = Get-Service -Name MACService -ErrorAction SilentlyContinue
+        $SERecovery = Get-Service -Name SE3Recovery -ErrorAction SilentlyContinue
     
         if (($SECCService.Status -eq "Stopped") -and ($SEMACService.Status -eq "Stopped") -and ($SERecovery.Status -eq "Stopped")) {
             Log "All services are stopped."
             return
         }
-    
-        Start-Sleep -Seconds 10
+        
+        if ($i -eq 1) {
+            Log "Services are still running, waiting 10 seconds before trying again..."
+            Start-Sleep -Seconds 10
+        } elseif ($i -eq 2) {
+            Log "Services are still running, waiting 60 seconds before trying again..."
+            Start-Sleep -Seconds 60
+        } elseif ($i -eq 3) {
+            Log "Services are still running, waiting 300 seconds before trying again..."
+            Start-Sleep -Seconds 300
+        }
     }
 }
 
