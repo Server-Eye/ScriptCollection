@@ -89,6 +89,19 @@
     Update Kategorien die entfernt werden sollen.
 
     Update categories that should be removed.
+
+    .PARAMETER WindowsUpdates
+    Wähle aus, wie Windows Upgrades und Updates gehandhabt werden sollen:
+    "NONE" (Es werden keine Windows Updates installiert),
+    "WINDOWS_PATCHES" (Nur Windows Sicherheitsupdates werden installiert),
+    "WINDOWS_FEATURE_UPDATE" (Windows Funktionsupdates und Sicherheitsupdates werden installiert),
+    "WINDOWS_OS_UPGRADE" (Windows Funktionsupdates, Sicherheitsupdates und Windows Betriebssystem Upgrades werden installiert)
+
+    Choose how Windows upgrades and updates should be handled:
+    "NONE" (No Windows updates will be installed),
+    "WINDOWS_PATCHES" (Only Windows security updates will be installed),
+    "WINDOWS_FEATURE_UPDATE" (Windows feature updates and security updates will be installed),
+    "WINDOWS_OS_UPGRADE" (Windows feature updates, security updates, and Windows operating system upgrades will be installed)
     
     .EXAMPLE
     PS> .\ChangeSUSettings.ps1 -AuthToken "ApiKey" -CustomerId "ID des Kunden" -DelayInstallByDays "Tage fuer die Verzoegerung" -InstallWindowInDays "Tage fuer die Installation"
@@ -153,7 +166,7 @@ Param (
     [Parameter(Mandatory = $false)]
     [ArgumentCompleter(
         {
-            Get-SESUCategories 
+            Get-SESUCategories
         }
     )]
     $AddCategories,
@@ -161,10 +174,14 @@ Param (
     [Parameter(Mandatory = $false)]
     [ArgumentCompleter(
         {
-            Get-SESUCategories 
+            Get-SESUCategories
         }
     )]
-    $RemoveCategories
+    $RemoveCategories,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("NONE", "WINDOWS_PATCHES", "WINDOWS_FEATURE_UPDATE", "WINDOWS_OS_UPGRADE")]
+    [string]$WindowsUpdates
 )
 
 # Global variable
@@ -184,7 +201,6 @@ function Write-Log {
         }
         $DateTime = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
         Add-Content -Value "$DateTime - $Message" -Path $LogFilePath
-        Write-Host $Message
     } 
     catch { 
         Write-Error $_.Exception.Message 
@@ -271,7 +287,8 @@ function Set-SEViewFilterSetting {
         $EnableRebootNotify,
         $MaxRebootNotifyIntervalInHours,
         $EnableForceReboot,
-        $DelayForceRebootByDays
+        $DelayForceRebootByDays,
+        $WindowsUpgradeLevel
     )
 
     Write-Log "Preparing settings payload for view filter ID: $($ViewFilterSetting.vfId)"
@@ -332,8 +349,13 @@ function Set-SEViewFilterSetting {
         $ViewFilterSetting.downloadStrategy = $ViewFilterSetting.downloadStrategy
     }
 
-    if ($AddedCategories -or $RemovedCategories) {
+    if ($AddedCategories -or $RemovedCategories -or $WindowsUpgradeLevel) {
         $newSettingList = New-Object System.Collections.Generic.List[PSObject]
+
+        # Always add MICROSOFT category if $WindowsUpdates (windowsUpgradeLevel) is set, as thats what the backend expects
+        if ($WindowsUpgradeLevel) {
+            $newSettingList.Add([PSCustomObject]@{ id = "MICROSOFT" })
+        }
 
         foreach ($cat in $ViewFilterSetting.categories) {
             $newSettingList.Add($cat)
@@ -359,6 +381,15 @@ function Set-SEViewFilterSetting {
             }
         }
 
+        # Remove "MICROSOFT" category if $WindowsUpdates (windowsUpgradeLevel) is set to "NONE"
+        if ($WindowsUpgradeLevel -eq "NONE") {
+            $predicate = [Predicate[PSObject]] {
+                param($item)
+                $item.id -eq "MICROSOFT"
+            }
+            $newSettingList.RemoveAll($predicate) | Out-Null
+        }
+
         $ViewFilterSetting.categories = $newSettingList
     }
 
@@ -376,8 +407,14 @@ function Set-SEViewFilterSetting {
         $ViewFilterSetting.delayForceRebootByDays = $ViewFilterSetting.delayInstallByDays + $ViewFilterSetting.installWindowInDays - $DelayForceRebootByDays
     }
 
+    if ($WindowsUpgradeLevel) {
+        $ViewFilterSetting.windowsUpgradeLevel = $WindowsUpgradeLevel
+    } else {
+        $ViewFilterSetting.windowsUpgradeLevel = $ViewFilterSetting.windowsUpgradeLevel
+    }
+
     $body = $ViewFilterSetting |
-        Select-Object -Property installWindowInDays, delayInstallByDays, categories, downloadStrategy, maxScanAgeInDays, enableRebootNotify, maxRebootNotifyIntervalInHours, delayRebootNotifyByDays, enableForceReboot, delayForceRebootByDays |
+        Select-Object -Property installWindowInDays, delayInstallByDays, categories, downloadStrategy, maxScanAgeInDays, enableRebootNotify, maxRebootNotifyIntervalInHours, delayRebootNotifyByDays, enableForceReboot, delayForceRebootByDays, windowsUpgradeLevel |
         ConvertTo-Json
 
     $SetCustomerViewFilterSettingURL = "https://pm.server-eye.de/patch/$($ViewFilterSetting.customerId)/viewFilter/$($ViewFilterSetting.vfId)/settings"
@@ -412,6 +449,7 @@ function Set-SEViewFilterSetting {
     Write-Host "Downloadverhalten: $($ViewFilterSetting.downloadStrategy)"
     Write-Host "Erzwungener Neustart: $($ViewFilterSetting.enableForceReboot)"
     Write-Host "Erzwungener Neustart nach Tagen: $($ViewFilterSetting.delayInstallByDays + $ViewFilterSetting.installWindowInDays - $ViewFilterSetting.delayForceRebootByDays) Tag(e)"
+    Write-Host "Windows Upgrades und Updates: $($ViewFilterSetting.windowsUpgradeLevel)"
 
     if ($addedCategories) {
         Write-Host "Hinzugefuegte Update Kategorien: $addedCategories"
@@ -436,7 +474,7 @@ else {
 foreach ($Group in $Groups) {
     $GroupSettings = Get-SEViewFilterSettings -AuthToken $AuthToken -CustomerID $CustomerID -ViewFilter $Group
     foreach ($GroupSetting in $GroupSettings) {
-        Set-SEViewFilterSetting -AuthToken $AuthToken -ViewFilterSetting $GroupSetting -DelayInstallByDays $DelayInstallByDays -InstallWindowInDays $InstallWindowInDays -DownloadStrategy $DownloadStrategy -AddedCategories $AddCategories -RemovedCategories $RemoveCategories -MaxScanAgeInDays $MaxScanAgeInDays -EnableRebootNotify $EnableRebootNotify -MaxRebootNotifyIntervalInHours $MaxRebootNotifyIntervalInHours -DelayRebootNotifyByDays $DelayRebootNotifyByDays -EnableForceReboot $EnableForceReboot -DelayForceRebootByDays $DelayForceRebootByDays
+        Set-SEViewFilterSetting -AuthToken $AuthToken -ViewFilterSetting $GroupSetting -DelayInstallByDays $DelayInstallByDays -InstallWindowInDays $InstallWindowInDays -DownloadStrategy $DownloadStrategy -AddedCategories $AddCategories -RemovedCategories $RemoveCategories -MaxScanAgeInDays $MaxScanAgeInDays -EnableRebootNotify $EnableRebootNotify -MaxRebootNotifyIntervalInHours $MaxRebootNotifyIntervalInHours -DelayRebootNotifyByDays $DelayRebootNotifyByDays -EnableForceReboot $EnableForceReboot -DelayForceRebootByDays $DelayForceRebootByDays -WindowsUpgradeLevel $WindowsUpdates
     }
 }
 
