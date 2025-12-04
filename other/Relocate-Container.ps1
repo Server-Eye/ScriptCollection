@@ -92,6 +92,9 @@ Param (
 )
 
 #region Internal variables
+# Try to enable TLS 1.2 for this session, this is not enabled by default on older Windows versions like Windows Server 2012 R2
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
 # servereye install path
 if ($env:PROCESSOR_ARCHITECTURE -eq "x86") {
     $SEInstPath = "$env:ProgramFiles\Server-Eye"
