@@ -125,9 +125,6 @@ if ($IsOCCConnector) {
 
 # Logfile path
 $Logpath = "$env:windir\Temp\Relocate-Container.log"
-
-# Enable TLS 1.2 for this powershell session for API calls. This is needed for WinServer 2012 R2 and older
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 #endregion
 
 #region Function declarations
