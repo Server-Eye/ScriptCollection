@@ -92,6 +92,9 @@ Param (
 )
 
 #region Internal variables
+# Try to enable TLS 1.2 for this session, this is not enabled by default on older Windows versions like Windows Server 2012 R2
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
 # servereye install path
 if ($env:PROCESSOR_ARCHITECTURE -eq "x86") {
     $SEInstPath = "$env:ProgramFiles\Server-Eye"
@@ -120,7 +123,7 @@ if ($IsOCCConnector) {
     $OldMACId  = (Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
 }
 
-#Logfile path
+# Logfile path
 $Logpath = "$env:windir\Temp\Relocate-Container.log"
 #endregion
 
@@ -131,28 +134,6 @@ function Log {
     $LogMessage = "[$Stamp] $LogString"
     Add-Content "$Logpath" -Value $LogMessage
     Write-Host $LogMessage
-}
-
-function Test-SEServiceStop() {
-    $SECCService = Get-Service -Name CCService
-    $SEMACService = Get-Service -Name MACService
-    $SERecovery = Get-Service -Name SE3Recovery
-    for ($i = 0; $i -le 6; $i++) {
-        if ($i -eq 6) {
-            Log "Failed to stop all services after 60 seconds. Terminating script."
-            exit
-        }
-
-        $SECCService = Get-Service -Name CCService
-        $SEMACService = Get-Service -Name MACService
-        $SERecovery = Get-Service -Name SE3Recovery
-    
-        if (($SECCService.Status -eq "Stopped") -and ($SEMACService.Status -eq "Stopped") -and ($SERecovery.Status -eq "Stopped")) {
-            break
-        }
-    
-        Start-Sleep -Seconds 10
-    }    
 }
 
 function Edit-SEConfigFiles() {
@@ -192,14 +173,39 @@ function Edit-SEConfigFiles() {
 
 function Stop-SEServices() {
     Log "Making sure all servereye services are stopped..."
-    if ($IsOCCConnector) {
-        Stop-Service "SE3Recovery", "MACService", "CCService" -ErrorAction SilentlyContinue
-    } else {
-        Stop-Service "SE3Recovery", "CCService" -ErrorAction SilentlyContinue
+    for ($i = 0; $i -le 3; $i++) {
+        Log "Attempt $($i): Stopping services..."
+        if ($i -eq 3) {
+            Log "Failed to stop all services after 3 tries. Terminating script."
+            exit
+        }
+
+        if ($IsOCCConnector) {
+            Stop-Service "SE3Recovery", "MACService", "CCService" -ErrorAction SilentlyContinue
+        } else {
+            Stop-Service "SE3Recovery", "CCService" -ErrorAction SilentlyContinue
+        }
+
+        $SECCService = Get-Service -Name CCService -ErrorAction SilentlyContinue
+        $SEMACService = Get-Service -Name MACService -ErrorAction SilentlyContinue
+        $SERecovery = Get-Service -Name SE3Recovery -ErrorAction SilentlyContinue
+    
+        if (($SECCService.Status -eq "Stopped") -and ($SEMACService.Status -eq "Stopped") -and ($SERecovery.Status -eq "Stopped")) {
+            Log "All services are stopped."
+            return
+        }
+        
+        if ($i -eq 1) {
+            Log "Services are still running, waiting 10 seconds before trying again..."
+            Start-Sleep -Seconds 10
+        } elseif ($i -eq 2) {
+            Log "Services are still running, waiting 60 seconds before trying again..."
+            Start-Sleep -Seconds 60
+        } elseif ($i -eq 3) {
+            Log "Services are still running, waiting 300 seconds before trying again..."
+            Start-Sleep -Seconds 300
+        }
     }
-    Test-SEServiceStop
-    if ($?) {Log "Stopped all services."}
-    else {Log "Services are already stopped."}
 }
 
 function Start-SEServices() {
