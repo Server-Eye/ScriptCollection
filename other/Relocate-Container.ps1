@@ -41,11 +41,15 @@
 
     .NOTES
     Author  : servereye
-    Version : 1.3
+    Version : 1.3.1
 
     .EXAMPLE
     PS> .\Relocate-Container.ps1 -MoveAs 'Sensorhub' -CustomerNumber '42569786' -ParentGuid '4f1kg420-2315-28he-89bc-509s20b25f76' -SecretKey 'e12ejgcf-d491-9892-bg83-95ka457938c2'
     Relocates a container to the specified customer with the given parent GUID and secret key.
+
+    .EXAMPLE
+    PS> .\Relocate-Container.ps1 -MoveAs 'Sensorhub' -MoveSensors 'true' -CopyContainerSettings 'true' -RemoveContainer 'true' -CustomerNumber '42569786' -ParentGuid '4f1kg420-2315-28he-89bc-509s20b25f76' -SecretKey 'e12ejgcf-d491-9892-bg83-95ka457938c2' -ApiKeyCurrentDistributor 'a98djghe-1234-5678-bg83-95ka457938c2'
+    Relocates a container to the specified customer with the given parent GUID and secret key. Moves sensors, copies container settings, and removes the old container.
 #>
 
 [CmdletBinding()]
@@ -91,9 +95,32 @@ Param (
     $ApiKeyNewDistributor
 )
 
+function Log {
+    Param ([string]$LogString)
+    $Stamp = (Get-Date).toString("dd/MM/yyyy HH:mm:ss")
+    $LogMessage = "[$Stamp] $LogString"
+    Add-Content "$Logpath" -Value $LogMessage -Encoding UTF8
+    Write-Host $LogMessage
+}
+
 #region Internal variables
 # Try to enable TLS 1.2 for this session, this is not enabled by default on older Windows versions like Windows Server 2012 R2
-[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+# Use numeric value 3072 as fallback for systems where the Tls12 enum value doesn't exist
+try {
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+}
+catch {
+    try {
+        # Tls12 = 3072
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]3072
+    }
+    catch {
+        Log "Unable to set TLS 1.2. API calls may fail on this system."
+    }
+}
+
+# Determine PowerShell version for compatibility checks
+$PSVersionMajor = $PSVersionTable.PSVersion.Major
 
 # servereye install path
 if ($env:PROCESSOR_ARCHITECTURE -eq "x86") {
@@ -117,10 +144,43 @@ if (-not $ApiKeyNewDistributor) {
     $ApiKeyCurrentDistributor = $ApiKeyNewDistributor
 }
 
-# Get the current GUID(s)
-$OldCCId = (Get-Content $CCConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
+# Get the current GUID(s) with validation
+try {
+    if (-not (Test-Path $CCConfigPath)) {
+        Log "Configuration file not found: $CCConfigPath. Terminating script."
+        exit
+    }
+    $ccContent = Get-Content $CCConfigPath -ErrorAction Stop
+    $guidLine = $ccContent | Select-String -Pattern "^guid="
+    if ($null -eq $guidLine) {
+        Log "No GUID found in se3_cc.conf - this may be a failed installation."
+        $OldCCId = ""
+    }
+    else {
+        $OldCCId = $guidLine.ToString().Split("=")[1].Trim()
+    }
+}
+catch {
+    Log "Failed to read configuration file: $_. Terminating script."
+    exit
+}
+
 if ($IsOCCConnector) {
-    $OldMACId  = (Get-Content $MACConfigPath -ErrorAction Stop | Select-String -Pattern "^guid=").ToString().Split("=")[1].Trim()
+    try {
+        $macContent = Get-Content $MACConfigPath -ErrorAction Stop
+        $guidLine = $macContent | Select-String -Pattern "^guid="
+        if ($null -eq $guidLine) {
+            Log "No GUID found in se3_mac.conf - this may be a failed installation."
+            $OldMACId = ""
+        }
+        else {
+            $OldMACId = $guidLine.ToString().Split("=")[1].Trim()
+        }
+    }
+    catch {
+        Log "Failed to read MAC configuration file: $_. Terminating script."
+        exit
+    }
 }
 
 # Logfile path
@@ -128,24 +188,82 @@ $Logpath = "$env:windir\Temp\Relocate-Container.log"
 #endregion
 
 #region Function declarations
-function Log {
-    Param ([string]$LogString)
-    $Stamp = (Get-Date).toString("dd/MM/yyyy HH:mm:ss")
-    $LogMessage = "[$Stamp] $LogString"
-    Add-Content "$Logpath" -Value $LogMessage
-    Write-Host $LogMessage
+
+function Set-ContentNoNewline {
+    <#
+    .SYNOPSIS
+    Writes content to a file without adding a trailing newline. Compatible with PowerShell 3.0+.
+    #>
+    Param (
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Value,
+        [string]$Encoding = "UTF8"
+    )
+    
+    if ($PSVersionMajor -ge 5) {
+        # PowerShell 5.0+ supports -NoNewline
+        Set-Content -Path $Path -Value $Value -NoNewline -Encoding $Encoding
+    }
+    else {
+        # Fallback for older PowerShell versions using .NET directly
+        $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($Path, $Value, $Utf8NoBom)
+    }
+}
+
+function Get-RegistryValue {
+    <#
+    .SYNOPSIS
+    Gets a registry value. Compatible with PowerShell 3.0+ (fallback for Get-ItemPropertyValue which requires PS 5.0).
+    #>
+    Param (
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+    
+    if ($PSVersionMajor -ge 5) {
+        return Get-ItemPropertyValue -Path $Path -Name $Name -ErrorAction Stop
+    }
+    else {
+        $item = Get-ItemProperty -Path $Path -Name $Name -ErrorAction Stop
+        return $item.$Name
+    }
+}
+
+function Get-FileContentRaw {
+    <#
+    .SYNOPSIS
+    Gets file content as a single string. More reliable across PowerShell versions.
+    #>
+    Param (
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+    
+    if ($PSVersionMajor -ge 3) {
+        # -Raw is available in PS 3.0+
+        return Get-Content -Path $Path -Raw -ErrorAction Stop
+    }
+    else {
+        # Fallback for PS 2.0 (shouldn't be hit on Server 2012+ but just in case)
+        return [System.IO.File]::ReadAllText($Path)
+    }
 }
 
 function Edit-SEConfigFiles() {
     if (($IsOCCConnector) -and ($MoveAs -eq "OCC-Connector")) {
         try {
             Log "Modifying se3_mac.conf..."
-            $content = Get-Content $MACConfigPath -Raw -ErrorAction Stop
+            $content = Get-FileContentRaw -Path $MACConfigPath
             # Use multiline regex mode to replace each config line
-            $content = [regex]::Replace($content, "^customer=.*$", "customer=$CustomerNumber", "Multiline")
-            $content = [regex]::Replace($content, "^secretKey=.*$", "secretKey=$SecretKey", "Multiline")
+            $content = [regex]::Replace($content, "^customer=.*$", "customer=$($CustomerNumber.Trim())", "Multiline")
+            $content = [regex]::Replace($content, "^secretKey=.*$", "secretKey=$($SecretKey.Trim())", "Multiline")
             $content = [regex]::Replace($content, "^guid=.*$", "guid=", "Multiline")
-            $content | Set-Content $MACConfigPath -NoNewline
+            Set-ContentNoNewline -Path $MACConfigPath -Value $content
             Log "Successfully modified se3_mac.conf."
         }
         catch {
@@ -156,13 +274,13 @@ function Edit-SEConfigFiles() {
 
     try {
         Log "Modifying se3_cc.conf..."
-        $content = Get-Content $CCConfigPath -Raw -ErrorAction Stop
+        $content = Get-FileContentRaw -Path $CCConfigPath
         # Use multiline regex mode to replace each config line
-        $content = [regex]::Replace($content, "^customer=.*$", "customer=$CustomerNumber", "Multiline")
-        $content = [regex]::Replace($content, "^parentGuid=.*$", "parentGuid=$ParentGuid", "Multiline")
-        $content = [regex]::Replace($content, "^secretKey=.*$", "secretKey=$SecretKey", "Multiline")
+        $content = [regex]::Replace($content, "^customer=.*$", "customer=$($CustomerNumber.Trim())", "Multiline")
+        $content = [regex]::Replace($content, "^parentGuid=.*$", "parentGuid=$($ParentGuid.Trim())", "Multiline")
+        $content = [regex]::Replace($content, "^secretKey=.*$", "secretKey=$($SecretKey.Trim())", "Multiline")
         $content = [regex]::Replace($content, "^guid=.*$", "guid=", "Multiline")
-        $content | Set-Content $CCConfigPath -NoNewline
+        Set-ContentNoNewline -Path $CCConfigPath -Value $content
         Log "Successfully modified se3_cc.conf."
     }
     catch {
@@ -173,46 +291,82 @@ function Edit-SEConfigFiles() {
 
 function Stop-SEServices() {
     Log "Making sure all servereye services are stopped..."
-    for ($i = 0; $i -le 3; $i++) {
-        Log "Attempt $($i): Stopping services..."
-        if ($i -eq 3) {
-            Log "Failed to stop all services after 3 tries. Terminating script."
-            exit
+    $serviceNames = @("CCService", "SE3Recovery")
+    if ($IsOCCConnector) { $serviceNames += "MACService" }
+
+    $waits = @(10, 60, 300)
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        Log "Attempt $($attempt): Stopping services..."
+
+        $services = Get-Service -Name $serviceNames -ErrorAction SilentlyContinue
+        if (-not $services) {
+            Log "No servereye services found to stop."
+            return
         }
 
-        if ($IsOCCConnector) {
-            Stop-Service "SE3Recovery", "MACService", "CCService" -ErrorAction SilentlyContinue
-        } else {
-            Stop-Service "SE3Recovery", "CCService" -ErrorAction SilentlyContinue
+        Stop-Service -Name $services.Name -ErrorAction SilentlyContinue
+        
+        Start-Sleep -Seconds 5
+
+        $allStopped = $true
+        foreach ($name in $serviceNames) {
+            $svc = Get-Service -Name $name -ErrorAction SilentlyContinue
+            if (-not $svc) {
+                Log "Service '$name' not found, assuming it is not running."
+                continue
+            }
+            if ($svc.Status -ne "Stopped") {
+                Log "Service '$name' is still in status '$($svc.Status)'."
+                $allStopped = $false
+            }
         }
 
-        $SECCService = Get-Service -Name CCService -ErrorAction SilentlyContinue
-        $SEMACService = Get-Service -Name MACService -ErrorAction SilentlyContinue
-        $SERecovery = Get-Service -Name SE3Recovery -ErrorAction SilentlyContinue
-    
-        if (($SECCService.Status -eq "Stopped") -and ($SEMACService.Status -eq "Stopped") -and ($SERecovery.Status -eq "Stopped")) {
+        if ($allStopped) {
             Log "All services are stopped."
             return
         }
-        
-        if ($i -eq 1) {
-            Log "Services are still running, waiting 10 seconds before trying again..."
-            Start-Sleep -Seconds 10
-        } elseif ($i -eq 2) {
-            Log "Services are still running, waiting 60 seconds before trying again..."
-            Start-Sleep -Seconds 60
-        } elseif ($i -eq 3) {
-            Log "Services are still running, waiting 300 seconds before trying again..."
-            Start-Sleep -Seconds 300
+
+        if ($attempt -lt 3) {
+            $waitSeconds = $waits[$attempt - 1]
+            Log "Services are still running, waiting $waitSeconds seconds before trying again..."
+            Start-Sleep -Seconds $waitSeconds
         }
     }
+
+    Log "Failed to stop all services after 3 tries. Terminating script."
+    exit
 }
 
 function Start-SEServices() {
     try {
-        if (($IsOCCConnector -or ($MoveAs -eq "OCC-Connector")) -and -not ($MoveAs -eq "Sensorhub")) {
+        $needsMac = ($MoveAs -eq "OCC-Connector")
+        $waits = @(10, 60, 300)
+
+        if ($needsMac) {
             Log "Starting MACService and waiting for new OCC-Connector GUID..."
-            Start-Service "MACService" -ErrorAction Stop
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+                $macSvc = Get-Service -Name "MACService" -ErrorAction SilentlyContinue
+                if ($macSvc) {
+                    if ($macSvc.Status -ne "Running") {
+                        Start-Service -Name "MACService" -ErrorAction SilentlyContinue
+                    }
+                    $macSvc = Get-Service -Name "MACService" -ErrorAction SilentlyContinue
+                    if ($macSvc.Status -eq "Running") { break }
+                }
+
+                if ($attempt -lt 3) {
+                    $waitSeconds = $waits[$attempt - 1]
+                    Log "MACService is not running yet, waiting $waitSeconds seconds before trying again..."
+                    Start-Sleep -Seconds $waitSeconds
+                }
+            }
+
+            $macSvc = Get-Service -Name "MACService" -ErrorAction SilentlyContinue
+            if (-not $macSvc -or $macSvc.Status -ne "Running") {
+                Log "Failed to start MACService after 3 tries. Terminating script."
+                exit
+            }
+
             Log "Started MACService."
             Log "Waiting for MACService to generate the new GUID..."
             for ($i = 1; $i -le 120; $i++) {
@@ -234,17 +388,41 @@ function Start-SEServices() {
 
             # Sleep for a bit to let MACService sort things out for itself, since CCService will grab the wrong parentGuid down the line if we don't.
             # This isn't pretty but so far we haven't found a proper check for this.
-            Start-Sleep -Seconds 10
-
-            Log "Starting CCService and SE3Recovery..."
-            Start-Service "CCService", "SE3Recovery" -ErrorAction Stop
-            Log "Started CCService and SE3Recovery."
-        } else {
-            Log "Starting the needed services..."
-            Start-Service "CCService", "SE3Recovery" -ErrorAction Stop
-            Log "Started CCService and SE3Recovery."
+            Start-Sleep -Seconds 30
         }
-        Log "Started all needed services."
+
+        Log "Starting CCService and SE3Recovery..."
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            $services = Get-Service -Name "CCService", "SE3Recovery" -ErrorAction SilentlyContinue
+            if ($services) {
+                foreach ($svc in $services) {
+                    if ($svc.Status -ne "Running") {
+                        Start-Service -Name $svc.Name -ErrorAction SilentlyContinue
+                    }
+                }
+            }
+
+            $services = Get-Service -Name "CCService", "SE3Recovery" -ErrorAction SilentlyContinue
+            $allRunning = $true
+            foreach ($svc in $services) {
+                if ($svc.Status -ne "Running") { $allRunning = $false }
+            }
+
+            if ($allRunning) {
+                Log "Started CCService and SE3Recovery."
+                Log "Started all needed services."
+                return
+            }
+
+            if ($attempt -lt 3) {
+                $waitSeconds = $waits[$attempt - 1]
+                Log "Services are not running yet, waiting $waitSeconds seconds before trying again..."
+                Start-Sleep -Seconds $waitSeconds
+            }
+        }
+
+        Log "Failed to start CCService and/or SE3Recovery after 3 tries. Terminating script."
+        exit
     }
     catch {
         Log "There was an issue starting the services or getting the new OCC-Connector GUID:`n$_`nTerminating script."
@@ -255,10 +433,30 @@ function Start-SEServices() {
 function Remove-SEDataPath() {
     try {
         Start-Sleep -Seconds 3
-        Remove-Item -Path $SEDataPath -Recurse -Force -ErrorAction Stop
+        Log "Deleting contents of ServerEye3 folder (excluding tasks folder)..."
+        
+        # Get all items in the ServerEye3 folder
+        $items = Get-ChildItem -Path $SEDataPath -Force -ErrorAction Stop
+        
+        # Delete everything except the tasks folder
+        foreach ($item in $items) {
+            if ($item.Name -ne "tasks") {
+                try {
+                    Remove-Item -Path $item.FullName -Recurse -Force -ErrorAction Stop
+                }
+                catch {
+                    Log "Failed to delete $($item.Name): $_`nContinuing with next item."
+                }
+            }
+            else {
+                Log "Skipped deletion of tasks folder (script is running from here)."
+            }
+        }
+        
+        Log "ServerEye3 folder cleanup completed."
     }
     catch {
-        Log "There was an issue deleting the ServerEye3 folder:`n$_`nContinuing, since some files might be in use."
+        Log "There was an issue accessing the ServerEye3 folder:`n$_`nContinuing, since some files might be in use."
     }
 }
 
@@ -292,13 +490,14 @@ function ConvertTo-SEOCCConnector {
         exit
     }
     try {
-        Set-Content -Path $MACConfigPath -NoNewline -Value @"
-customer=$CustomerNumber
+        $macContent = @"
+customer=$($CustomerNumber.Trim())
 name=
 description=
-secretKey=$SecretKey
+secretKey=$($SecretKey.Trim())
 guid=
 "@
+        Set-ContentNoNewline -Path $MACConfigPath -Value $macContent
         Log "se3_mac.conf created."
     }
     catch {
@@ -397,6 +596,7 @@ function Move-SESensors {
                 continue
             }
         }
+        Log "Main settings set for agent '$($Agent.name)'."
     }
 }
 
@@ -466,25 +666,59 @@ function Copy-SEContainerSettings {
 
 function Remove-SEPlannedTasks {
     Log "Removing planned tasks..."
+    $i = 0
+    $useModule = $false
+    
+    # Try to use ScheduledTasks module (available in PS 4.0+ on Windows 8/Server 2012 and later)
     try {
         Import-Module ScheduledTasks -ErrorAction Stop
+        $useModule = $true
     }
     catch {
-        Log "Failed to import ScheduledTasks Module, servereye Tasks were not deleted on this system. Error: `n$_`n"
+        Log "ScheduledTasks module not available, falling back to schtasks.exe..."
     }
-    $Tasks = Get-ScheduledTask -TaskPath "\Server-Eye Tasks" -ErrorAction SilentlyContinue
-    $i = 0;
-    foreach ($Task in $Tasks) {
+    
+    if ($useModule) {
+        $Tasks = Get-ScheduledTask -TaskPath "\Server-Eye Tasks\" -ErrorAction SilentlyContinue
+        foreach ($Task in $Tasks) {
+            try {
+                $ProgressPreference = "SilentlyContinue"
+                Unregister-ScheduledTask -TaskName $Task.TaskName -TaskPath "\Server-Eye Tasks\" -Confirm:$false -ErrorAction Stop
+                $i++
+            }
+            catch {
+                Log "Failed to remove planned task '$($Task.TaskName)'. Error: `n$_`n"
+                continue
+            }
+        }
+    }
+    else {
+        # Fallback using schtasks.exe for older systems
         try {
-            $ProgressPreference = "SilentlyContinue"
-            Unregister-ScheduledTask -TaskName $Task.TaskName -TaskPath "\Server-Eye Tasks" -Confirm:$false -ErrorAction Stop
-            $i++
+            $taskListOutput = & schtasks.exe /Query /TN "\Server-Eye Tasks\" /FO CSV 2>&1
+            if ($LASTEXITCODE -eq 0 -and $taskListOutput) {
+                $taskLines = $taskListOutput | ConvertFrom-Csv -ErrorAction SilentlyContinue
+                foreach ($taskLine in $taskLines) {
+                    $taskName = $taskLine.TaskName
+                    if ($taskName -and $taskName -like "*Server-Eye Tasks*") {
+                        try {
+                            & schtasks.exe /Delete /TN $taskName /F 2>&1 | Out-Null
+                            if ($LASTEXITCODE -eq 0) {
+                                $i++
+                            }
+                        }
+                        catch {
+                            Log "Failed to remove planned task '$taskName'. Error: `n$_`n"
+                        }
+                    }
+                }
+            }
         }
         catch {
-            Log "Failed to remove planned task '$($Task.TaskName)'. Error: `n$_`n"
-            continue
+            Log "Failed to query scheduled tasks using schtasks.exe. Error: `n$_`n"
         }
     }
+    
     Log "Removed $i planned tasks."
 }
 
@@ -492,17 +726,25 @@ function Remove-SEAntiRansom {
     $ARRegPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Safer\CodeIdentifiers"
     try {
         Log "Checking Anti-Ransom status..."
-        if ((Get-ItemPropertyValue -Path $ARRegPath -Name DefaultLevel -ErrorAction Stop) -eq "0") {
+        if (-not (Test-Path $ARRegPath)) {
+            Log "Anti-Ransom registry path not found, no action needed."
+            return
+        }
+        
+        $defaultLevel = Get-RegistryValue -Path $ARRegPath -Name "DefaultLevel"
+        if ($defaultLevel -eq "0" -or $defaultLevel -eq 0) {
             Log "Anti-Ransom is enabled, disabling it..."
             try {
-                Set-ItemProperty -Path $ARRegPath -Name "DefaultLevel" -Value "262144" -ErrorAction Stop
+                Set-ItemProperty -Path $ARRegPath -Name "DefaultLevel" -Value 262144 -ErrorAction Stop
                 Log "Anti-Ransom has been disabled."
             }
             catch {
                 Log "Failed to disable Anti-Ransom. Error: `n$_`n"
             }
         }
-        Log "Anti-Ransom is not enabled, no action needed."
+        else {
+            Log "Anti-Ransom is not enabled, no action needed."
+        }
     }
     catch {
         Log "Failed to check Anti-Ransom status. Error: `n$_`n"
@@ -534,7 +776,8 @@ function Remove-SESmartUpdates {
             $SetNumber = ($string.ToString()).Substring(0, 1)
             Log "Removing Smart Updates related lines from file..."
             try {
-                $content | Select-String -Pattern $SetNumber -NotMatch | Set-Content -Path $PSCMDINIPath -NoNewline
+                $filteredContent = ($content | Select-String -Pattern $SetNumber -NotMatch | ForEach-Object { $_.Line }) -join "`r`n"
+                Set-ContentNoNewline -Path $PSCMDINIPath -Value $filteredContent
                 Log "Smart Updates related lines removed from $PSINICMDFileName file."
             }
             catch {
@@ -553,7 +796,8 @@ function Remove-SESmartUpdates {
             $SetNumber = ($string.ToString()).Substring(0, 1)
             Log "Removing Smart Updates related lines from file..."
             try {
-                $content | Select-String -Pattern $SetNumber -NotMatch | Set-Content -Path $PSPSINIPath -NoNewline
+                $filteredContent = ($content | Select-String -Pattern $SetNumber -NotMatch | ForEach-Object { $_.Line }) -join "`r`n"
+                Set-ContentNoNewline -Path $PSPSINIPath -Value $filteredContent
                 Log "Smart Updates related lines removed from $PSINIPSFileName file."
             }
             catch {
@@ -661,7 +905,7 @@ function Remove-SESensorhubContainer {
 #endregion
 
 #region Main execution
-Log "### Starting Relocate-Container.ps1 script... ###"
+Log "### Starting Relocate-Container.ps1 script v1.3.1 ###"
 Stop-SEServices
 if ($IsOCCConnector -and ($MoveAs -eq "Sensorhub")) { ConvertTo-SESensorhub }
 elseif ((-not $IsOCCConnector) -and ($MoveAs -eq "OCC-Connector")) { ConvertTo-SEOCCConnector }
