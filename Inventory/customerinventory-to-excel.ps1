@@ -169,7 +169,11 @@ function Inventory {
             }
 
             $ObjectWork += $SubObject
-            try { $InventoryAll.$CatItem = $ObjectWork } catch {}
+            if ($InventoryAll.PSObject.Properties.Name -contains $CatItem) {
+                $InventoryAll.$CatItem = $ObjectWork
+            } else {
+                $InventoryAll | Add-Member -NotePropertyName $CatItem -NotePropertyValue $ObjectWork
+            }
             Clear-Variable SubObject
         }
     }
