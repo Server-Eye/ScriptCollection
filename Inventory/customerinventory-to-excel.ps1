@@ -1,243 +1,284 @@
 #Requires -Modules ServerEye.Powershell.Helper, ImportExcel
 
-<# 
+<#
     .SYNOPSIS
-    Export inventory data from all sensorhubs of a customer into an excel file
+    Export inventory data from all sensorhubs of one or more customers into an Excel file.
 
     .DESCRIPTION
-    This script will read all inventory data of all sensorhubs of a customer and export it into an excel file
-    Disclaimer: This script requires two modules, which can be installed from the PowerShell Gallery Repo with the following command:
-    PS C:\> Install-Module -Name ServerEye.Powershell.Helper, ImportExcel
+    Reads all inventory data of all sensorhubs and exports it into an Excel file.
+    Multiple customers can be passed via the pipeline (Get-SECustomer); in that case a single
+    combined Excel file is created with a Customer column added to every worksheet.
+    Requires: Install-Module -Name ServerEye.Powershell.Helper, ImportExcel
 
     .PARAMETER ApiKey
-    The ApiKey of a user that is managing the customer, which inventory data should be extracted from
+    The ApiKey of a user managing the customer(s).
 
     .PARAMETER CustomerID
-    The CustomerID of the customer (can be found in the URL bar behind /customer/ when selecting a customer via the customer list in the OCC)
-    
+    The ID of a single customer. Optional when customers are provided via the pipeline.
+
     .PARAMETER Dest
-    The path where the excel file should be saved. Note: A folder called "inventory" will be created in this path, which will contain the excel file
+    Destination folder for the Excel file. A subfolder "inventory" will be created inside it.
+
+    .PARAMETER InputCustomer
+    Customer objects piped from Get-SECustomer. Multiple customers produce one combined Excel file.
 
     .NOTES
     Author  : Thomas Krammes of KITS, Modified by Patrick Hissler and Leon Zewe of servereye
-    Version : 1.2
-    
-    .EXAMPLE
-    Execute the script for a single customer:
-    PS C:\> .\customerinventory-to-excel.ps1 -ApiKey "e5e06dght-o924-4745-9407-4824ec3c5908" -CustomerID "3a8388cc-e09c-76c1-99aa-53f65acd59a8" -Dest "C:\Users\max.mustermann\Documents"
+    Version : 1.3
 
     .EXAMPLE
-    Execute the script for every customer currently managed by the user who's ApiKey is provided:
-    PS C:\> Get-SECustomer -ApiKey "e5e06dght-o924-4745-9407-4824ec3c5908" | ForEach-Object {.\customerinventory-to-excel.ps1 -ApiKey "e5e06dght-o924-4745-9407-4824ec3c5908" -CustomerId $_.CustomerID -Dest "C:\Users\max.mustermann\Documents\"}
+    # Single customer by ID
+    .\customerinventory-to-excel.ps1 -ApiKey "your-key" -CustomerID "customer-id" -Dest "C:\Reports"
+
+    .EXAMPLE
+    # Multiple customers via pipeline — one combined Excel file
+    Get-SECustomer -ApiKey "your-key" | .\customerinventory-to-excel.ps1 -ApiKey "your-key" -Dest "C:\Reports"
+
+    .EXAMPLE
+    # One file per customer using ForEach-Object
+    Get-SECustomer -ApiKey "your-key" | ForEach-Object {
+        .\customerinventory-to-excel.ps1 -ApiKey "your-key" -CustomerID $_.CustomerID -Dest "C:\Reports"
+    }
 #>
 
+[CmdletBinding()]
 Param (
-    [Parameter(Mandatory=$true)][string]$ApiKey,
-    [Parameter(Mandatory=$true)][string]$CustomerID,
-    [Parameter(Mandatory=$true)][string]$Dest
+    [Parameter(Mandatory)][string]$ApiKey,
+    [Parameter()][string]$CustomerID,
+    [Parameter(Mandatory)][string]$Dest,
+    [Parameter(ValueFromPipeline)]$InputCustomer
 )
 
-function Status {
-    Param (
-        [Parameter(Mandatory=$true)][string]$Activity,
-        [Parameter(Mandatory=$true)][int]$Counter,
-        [Parameter(Mandatory=$true)][int]$Max,
-        [Parameter(Mandatory=$true)][string]$Status,
-        [Parameter(Mandatory=$true)][int]$Id,
-        [Parameter(Mandatory=$false)][int]$ParentId
-    )
-    if ($Max) {
-        $PercentComplete = (($Counter * 100) / $Max)
-    } else {
-        $PercentComplete = 100
-    }
+begin {
+    function Write-ProgressStatus {
+        param (
+            [string]$Activity,
+            [int]$Counter,
+            [int]$Max,
+            [string]$Status,
+            [int]$Id,
+            [int]$ParentId = 0
+        )
 
-    if ($PercentComplete -gt 100) {
-        $PercentComplete = 100
-    }
-    if ($ParentId) {
-        try { Write-Progress -Activity $Activity -PercentComplete $PercentComplete -Status $Status -Id $Id -ParentId $ParentId } catch {}
-    } else {
-        Write-Progress -Activity $Activity -PercentComplete $PercentComplete -Status $Status -Id $Id
-    }
-}
+        $percent = if ($Max -gt 0) { [Math]::Min(($Counter * 100) / $Max, 100) } else { 100 }
 
-function Inventory {
-    Param (
-        [Parameter(Mandatory=$true)]$Customer
-    )
-
-    $Hubs = Get-SeApiCustomerContainerList -AuthToken $ApiKey -CId $Customer.Cid | Where-Object { $_.Subtype -eq 2 }
-    $SafeCompanyName = $Customer.CompanyName -replace '[<>:"/\\|?*]', '_'
-    $XlsFile = Join-Path -Path $Dest -ChildPath "inventory\$SafeCompanyName.xlsx"
-
-    $CountH = 0
-    $HubCount = $Hubs.Count
-    $InitFile = $true
-
-    $InventoryAll = @()
-    $HostStatusAll = @()
-
-    foreach ($Hub in $Hubs) {
-        $CountH++
-        Status -Activity "$($CountH)/$($HubCount) Inventarisiere $($Customer.CompanyName)" -Max $HubCount -Counter $CountH -Status $Hub.Name -Id 2 -ParentId 1
-        $HubStatus = '' | Select-Object Hub, MachineName, LastDate, Inventory, OsName, IsVM, IsServer, LastRebootUser, Cid
-        $HubTemp = Get-SeApiContainer -AuthToken $ApiKey -CId $Hub.Id
-        $HubStatus.Hub = $Hub.Name
-        $HubStatus.OsName = $HubTemp.OsName
-        $HubStatus.MachineName = $HubTemp.MachineName
-        $HubStatus.IsVM = $HubTemp.IsVM
-        $HubStatus.IsServer = $HubTemp.IsServer
-        $HubStatus.Cid = $Hub.Id
-        $HubStatus.LastRebootUser = $HubTemp.LastRebootInfo.User
-        $State = (Get-SeApiContainerStateListbulk -AuthToken $ApiKey -CId $Hub.Id)
-        if ($null -eq $State.LastDate) {
-            $LastDate = "N/A"
-        } else {
-            $LastDate = [datetime]$State.LastDate
+        $params = @{
+            Activity        = $Activity
+            PercentComplete = $percent
+            Status          = $Status
+            Id              = $Id
         }
-        $HubStatus.LastDate = $LastDate
-        if ($LastDate -lt ((Get-Date).AddDays(-60)) -or $State.Message -eq 'OCC Connector hat die Verbindung zum Sensorhub verloren') {
-            $HubStatus.Inventory = $false
-            $HostStatusAll += $HubStatus
+        if ($ParentId -gt 0) { $params['ParentId'] = $ParentId }
+
+        Write-Progress @params
+    }
+
+    function Invoke-CustomerInventory {
+    param (
+        $Customer,
+        [string]$XlsFile,
+        [bool]$AddCustomerColumn = $false,
+        [bool]$ClearExisting     = $true
+    )
+
+    $hubs      = Get-SeApiCustomerContainerList -AuthToken $ApiKey -CId $Customer.CId |
+                     Where-Object Subtype -eq 2
+    $hubCount  = $hubs.Count
+    $hubIndex  = 0
+    $initFile  = $ClearExisting
+    $hostRows  = [System.Collections.Generic.List[object]]::new()
+    $invObject = $null   # built lazily on the first hub that has inventory data
+
+    foreach ($hub in $hubs) {
+        $hubIndex++
+        Write-ProgressStatus -Activity "Inventarisiere System: $hubIndex/$hubCount" `
+            -Counter $hubIndex -Max $hubCount -Status $hub.Name -Id 2 -ParentId 1
+
+        $hubDetail = Get-SeApiContainer -AuthToken $ApiKey -CId $hub.Id
+        $state     = Get-SeApiContainerStateListbulk -AuthToken $ApiKey -CId $hub.Id
+        $lastDate  = if ($null -eq $state.LastDate) { 'N/A' } else { [datetime]$state.LastDate }
+
+        $hostRow = if ($AddCustomerColumn) {
+            [PSCustomObject]@{
+                Customer       = $Customer.CompanyName
+                Hub            = $hub.Name
+                MachineName    = $hubDetail.MachineName
+                LastDate       = $lastDate
+                Inventory      = $false
+                OsName         = $hubDetail.OsName
+                IsVM           = $hubDetail.IsVM
+                IsServer       = $hubDetail.IsServer
+                LastRebootUser = $hubDetail.LastRebootInfo.User
+                CId            = $hub.Id
+            }
+        } else {
+            [PSCustomObject]@{
+                Hub            = $hub.Name
+                MachineName    = $hubDetail.MachineName
+                LastDate       = $lastDate
+                Inventory      = $false
+                OsName         = $hubDetail.OsName
+                IsVM           = $hubDetail.IsVM
+                IsServer       = $hubDetail.IsServer
+                LastRebootUser = $hubDetail.LastRebootInfo.User
+                CId            = $hub.Id
+            }
+        }
+
+        # Skip hubs that are offline or have lost their connector connection
+        $isOffline = ($lastDate -ne 'N/A' -and $lastDate -lt (Get-Date).AddDays(-60)) -or
+                     $state.Message -eq 'OCC Connector hat die Verbindung zum Sensorhub verloren'
+        if ($isOffline) {
+            $hostRows.Add($hostRow)
             continue
-        } else {
-            #-----------------------------------------------------------------------------------------
-            $ScriptBlock = {
-                try {
-                    $Inv = (Get-SeApiContainerInventory -AuthToken $args[0] -CId $args[1])
-                }
-                catch {
-                    $Inv = @()
-                }
-                return $Inv
-            }
-
-            $Inventory = Start-Job -ScriptBlock $ScriptBlock -ArgumentList @($ApiKey, $Hub.Id) | Wait-Job -Timeout 5 | Receive-Job
-            Get-Job -State Running | Stop-Job
-            Get-Job -State Stopped | Remove-Job
-            Get-Job -State Completed | Remove-Job
-            #------------------------------------------------------------------------------------------------------------------
-            if ($Inventory.Count -eq 0) {
-                $HubStatus.Inventory = $false
-                $HostStatusAll += $HubStatus
-                continue
-            }
         }
 
-        $HubStatus.Inventory = $true
-        $HostStatusAll += $HubStatus
+        # Fetch inventory with a 5-second timeout via a background job
+        $inv = Start-Job -ScriptBlock {
+            try { Get-SeApiContainerInventory -AuthToken $args[0] -CId $args[1] } catch { @() }
+        } -ArgumentList $ApiKey, $hub.Id | Wait-Job -Timeout 5 | Receive-Job
+        Get-Job | Remove-Job -Force
 
-        if (!($InitObjects)) {
-            $InventoryAll = @($Customer.CompanyName)
-            $InventoryAll = $InventoryAll | Select-Object 'Hosts'
-            $ObjectNames = (($Inventory | Get-Member) | Where-Object { $_.MemberType -eq 'NoteProperty' }).Name
-            foreach ($ObjectName in $ObjectNames) {
-                $InventoryAll = $InventoryAll | Select-Object *, $ObjectName
-            }
-
-            $InitObjects = $true
+        if (-not $inv) {
+            $hostRows.Add($hostRow)
+            continue
         }
 
-        $Categories = (($Inventory | Get-Member) | Where-Object { $_.MemberType -eq 'NoteProperty' }).Name
+        $hostRow.Inventory = $true
+        $hostRows.Add($hostRow)
 
-        foreach ($CatItem in $Categories) {
-            if ($Inventory.$CatItem.Host -ne $null) {
-                $SubObject = $Inventory.$CatItem | Select-Object RealHost, *
+        if (-not $invObject) {
+            $invObject = [PSCustomObject]@{ Hosts = $null }
+        }
+
+        $categories = $inv | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
+
+        foreach ($category in $categories) {
+            if (-not $inv.$category) { continue }
+
+            # Use RealHost column if present (it becomes the Host column), otherwise use Host
+            $hasHost = $inv.$category | Get-Member -Name Host -MemberType NoteProperty -ErrorAction SilentlyContinue
+            $rows = if ($hasHost) {
+                $inv.$category | Select-Object RealHost, *
             } else {
-                $SubObject = $Inventory.$CatItem | Select-Object Host, *
+                $inv.$category | Select-Object Host, *
             }
 
-            if ($SubObject.Count -gt 1) {
-                $Count = $SubObject.Count
-                for ($A = 0; $A -le $Count - 1; $A++) {
-                    $SubObject[$A].Host = $Hub.Name
-                }
-            } elseif (!$SubObject) {
-            } else {
-                $SubObject.Host = $Hub.Name
+            foreach ($row in @($rows)) { $row.Host = $hub.Name }
+
+            if ($AddCustomerColumn) {
+                $rows = @($rows) | Select-Object @{ N='Customer'; E={ $Customer.CompanyName } }, *
             }
 
-            if ((Test-Path $XlsFile) -and $InitFile) {
+            # Delete a stale file on the very first write of this run
+            if ($initFile -and (Test-Path $XlsFile)) {
                 Export-Excel -Path $XlsFile -KillExcel
                 Remove-Item $XlsFile
             }
-            $InitFile = $false
-            $ObjectWork = @()
-            if ($InventoryAll.$CatItem) {
-                $ObjectWork = $InventoryAll.$CatItem
-            }
+            $initFile = $false
 
-            $ObjectWork += $SubObject
-            if ($InventoryAll.PSObject.Properties.Name -contains $CatItem) {
-                $InventoryAll.$CatItem = $ObjectWork
+            if ($invObject.PSObject.Properties.Name -contains $category) {
+                $invObject.$category += $rows
             } else {
-                $InventoryAll | Add-Member -NotePropertyName $CatItem -NotePropertyValue $ObjectWork
+                $invObject | Add-Member -NotePropertyName $category -NotePropertyValue @($rows)
             }
-            Clear-Variable SubObject
         }
     }
 
-    if (!$InventoryAll) {
-       
+    if (-not $invObject) {
+        $invObject = [PSCustomObject]@{ Hosts = $null }
+    }
+    $invObject.Hosts = $hostRows
 
- $InventoryAll = @($Customer.CompanyName)
-        $InventoryAll = $InventoryAll | Select-Object 'Hosts'
+    # Write every category as its own worksheet; shared Export-Excel parameters via splatting
+    $categories = $invObject | Get-Member -MemberType NoteProperty |
+                      Where-Object Name -ne 'Hosts' | Select-Object -ExpandProperty Name
+    $sheetCount = $categories.Count + 1   # +1 for the Hosts sheet
+    $sheetIndex = 0
+
+    $xlParams = @{
+        Path         = $XlsFile
+        Append       = $true
+        AutoFilter   = $true
+        AutoSize     = $true
+        FreezeTopRow = $true
+        BoldTopRow   = $true
+        KillExcel    = $true
     }
 
-    $InventoryAll.Hosts = $HostStatusAll
-    $Worksheets = (($InventoryAll | Get-Member) | Where-Object { $_.MemberType -eq 'NoteProperty' }).Name
-    $XlsCount = $Worksheets.Count
-    $CountX = 0
-    $Worksheets = $Worksheets | Where-Object { $_ -ne 'Hosts' }
-    $InventoryAll.Hosts | Export-Excel -Path $XlsFile -WorksheetName 'Hosts' -Append -AutoFilter -AutoSize -FreezeTopRow -BoldTopRow -KillExcel
-    foreach ($ObjectName in $Worksheets) {
-        $CountX++
-        Status -Activity "$($CountX)/$($XlsCount) schreibe Daten in Excel: $($Customer.CompanyName).xlsx" -Max $XlsCount -Counter $CountX -Status $ObjectName -Id 2 -ParentId 1
-        $InventoryAll.$ObjectName | Export-Excel -Path $XlsFile -WorksheetName $ObjectName -Append -AutoFilter -AutoSize -FreezeTopRow -BoldTopRow -KillExcel -NoNumberConversion *
+    $invObject.Hosts | Export-Excel @xlParams -WorksheetName 'Hosts'
+
+    foreach ($category in $categories) {
+        $sheetIndex++
+        Write-ProgressStatus -Activity "$sheetIndex/$sheetCount Schreibe Excel: $(Split-Path $XlsFile -Leaf)" `
+            -Counter $sheetIndex -Max $sheetCount -Status $category -Id 2 -ParentId 1
+        $invObject.$category | Export-Excel @xlParams -WorksheetName $category -NoNumberConversion *
     }
 }
 
-if (!$CustomerID) {
-    try {
-        $Customers = Get-SeApiCustomerlist -AuthToken $ApiKey
-    }
-    catch {
-        Write-Host 'ApiKey falsch'
-        Exit
-    }
-    $CustomerCount = $Customers.Count
-} else {
-    try {
-        $Customers = @((Get-SeApiCustomerlist -AuthToken $ApiKey | Where-Object { $_.CId -eq $CustomerID }))
-    }
-    catch {
-        Write-Host 'ApiKey falsch'
-        Exit
-    }
-    if (!$Customers) {
-        Write-Host 'Customer nicht gefunden'
-        Exit
-    }
-    $CustomerCount = 1
+    $pipedCustomers = [System.Collections.Generic.List[object]]::new()
 }
 
-if (!(Test-Path $Dest)) {
-    Write-Host "$Dest nicht gefunden"
+process {
+    if ($InputCustomer) { $pipedCustomers.Add($InputCustomer) }
 }
 
-$InventoryRoot = Join-Path -Path $Dest -ChildPath '\inventory'
+end {
+    # Resolve the list of customers to process
+    if ($pipedCustomers.Count -gt 0) {
+        # Normalise piped objects — Get-SECustomer returns CId + CompanyName
+        $customers = $pipedCustomers | ForEach-Object {
+            $cid  = if ($_.PSObject.Properties['CId'])           { $_.CId }
+                    elseif ($_.PSObject.Properties['CustomerId']) { $_.CustomerId }
+                    else                                          { $_.CustomerID }
+            $name = if ($_.PSObject.Properties['CompanyName'])   { $_.CompanyName }
+                    elseif ($_.PSObject.Properties['Name'])       { $_.Name }
+                    else                                          { 'Unknown' }
+            if ($cid) { [PSCustomObject]@{ CId = $cid; CompanyName = $name } }
+        } | Where-Object { $_ }
+    } elseif ($CustomerID) {
+        try   { $customers = @(Get-SeApiCustomerlist -AuthToken $ApiKey | Where-Object CId -eq $CustomerID) }
+        catch { Write-Host 'ApiKey falsch'; return }
+        if (-not $customers) { Write-Host 'Customer nicht gefunden'; return }
+    } else {
+        try   { $customers = Get-SeApiCustomerlist -AuthToken $ApiKey }
+        catch { Write-Host 'ApiKey falsch'; return }
+    }
 
-if (!(Test-Path $InventoryRoot)) {
-    New-Item -Path $InventoryRoot -ItemType "directory" | Out-Null
-}
+    if (-not (Test-Path $Dest)) {
+        New-Item -Path $Dest -ItemType Directory | Out-Null
+    }
 
-$CountC = 0
-$InitObjects = $false
+    $inventoryRoot = Join-Path $Dest 'inventory'
+    if (-not (Test-Path $inventoryRoot)) {
+        New-Item -Path $inventoryRoot -ItemType Directory | Out-Null
+    }
 
-foreach ($Customer in $Customers) {
-    $CountC++
-    Write-Host $Customer.CompanyName
-    Status -Activity "$($CountC)/$($CustomerCount) Inventarisiere" -Max $CustomerCount -Counter $CountC -Status $Customer.CompanyName -Id 1
-    Inventory $Customer
+    # One file per customer, or one combined file for multiple customers
+    $multiCustomer = $customers.Count -gt 1
+    $xlsFile = if ($multiCustomer) {
+        Join-Path $inventoryRoot "MultiCustomer_$(Get-Date -Format 'yyyyMMdd_HHmmss').xlsx"
+    } else {
+        $safeName = $customers[0].CompanyName -replace '[<>:"/\\|?*]', '_'
+        Join-Path $inventoryRoot "$safeName.xlsx"
+    }
+
+    # Clear any existing combined file before starting so we don't append to stale data
+    if ($multiCustomer -and (Test-Path $xlsFile)) {
+        Export-Excel -Path $xlsFile -KillExcel
+        Remove-Item $xlsFile
+    }
+
+    $customerCount = $customers.Count
+    $customerIndex = 0
+
+    foreach ($customer in $customers) {
+        $customerIndex++
+        Write-Host $customer.CompanyName
+        Write-ProgressStatus -Activity "Inventarisiere Kunde: $customerIndex/$customerCount" `
+            -Counter $customerIndex -Max $customerCount -Status $customer.CompanyName -Id 1
+
+        Invoke-CustomerInventory -Customer $customer -XlsFile $xlsFile `
+            -AddCustomerColumn $multiCustomer -ClearExisting (-not $multiCustomer)
+    }
 }
