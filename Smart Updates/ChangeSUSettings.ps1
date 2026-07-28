@@ -443,7 +443,7 @@ function Set-SEViewFilterSetting {
     Write-Host "Updateverzoegerung: $($ViewFilterSetting.delayInstallByDays) Tag(e)"
     Write-Host "Installationszeitfenster: $($ViewFilterSetting.installWindowInDays) Tag(e)"
     Write-Host "Neustart-Hinweis anzeigen: $($ViewFilterSetting.enableRebootNotify)"
-    Write-Host "Neustart-Hinweis Tage vor Alarmierung: $($ViewFilterSetting.installWindowInDays - $ViewFilterSetting.delayRebootNotifyByDays) Tag(e)"
+    Write-Host "Neustart-Hinweis Tage vor Alarmierung: $($ViewFilterSetting.delayInstallByDays + $ViewFilterSetting.installWindowInDays - $ViewFilterSetting.delayRebootNotifyByDays) Tag(e)"
     Write-Host "Neustart-Hinweis Stunden bis zur erneuten Anzeige: $($ViewFilterSetting.maxRebootNotifyIntervalInHours) Stunde(n)"
     Write-Host "Maximale Tage ohne Scan: $($ViewFilterSetting.maxScanAgeInDays) Tag(e)"
     Write-Host "Downloadverhalten: $($ViewFilterSetting.downloadStrategy)"
@@ -474,7 +474,25 @@ else {
 foreach ($Group in $Groups) {
     $GroupSettings = Get-SEViewFilterSettings -AuthToken $AuthToken -CustomerID $CustomerID -ViewFilter $Group
     foreach ($GroupSetting in $GroupSettings) {
-        Set-SEViewFilterSetting -AuthToken $AuthToken -ViewFilterSetting $GroupSetting -DelayInstallByDays $DelayInstallByDays -InstallWindowInDays $InstallWindowInDays -DownloadStrategy $DownloadStrategy -AddedCategories $AddCategories -RemovedCategories $RemoveCategories -MaxScanAgeInDays $MaxScanAgeInDays -EnableRebootNotify $EnableRebootNotify -MaxRebootNotifyIntervalInHours $MaxRebootNotifyIntervalInHours -DelayRebootNotifyByDays $DelayRebootNotifyByDays -EnableForceReboot $EnableForceReboot -DelayForceRebootByDays $DelayForceRebootByDays -WindowsUpgradeLevel $WindowsUpdates
+        $setParams = @{
+            AuthToken         = $AuthToken
+            ViewFilterSetting = $GroupSetting
+        }
+
+        if ($PSBoundParameters.ContainsKey("DelayInstallByDays")) { $setParams.DelayInstallByDays = $DelayInstallByDays }
+        if ($PSBoundParameters.ContainsKey("InstallWindowInDays")) { $setParams.InstallWindowInDays = $InstallWindowInDays }
+        if ($PSBoundParameters.ContainsKey("DownloadStrategy")) { $setParams.DownloadStrategy = $DownloadStrategy }
+        if ($PSBoundParameters.ContainsKey("AddCategories")) { $setParams.AddedCategories = $AddCategories }
+        if ($PSBoundParameters.ContainsKey("RemoveCategories")) { $setParams.RemovedCategories = $RemoveCategories }
+        if ($PSBoundParameters.ContainsKey("MaxScanAgeInDays")) { $setParams.MaxScanAgeInDays = $MaxScanAgeInDays }
+        if ($PSBoundParameters.ContainsKey("EnableRebootNotify")) { $setParams.EnableRebootNotify = $EnableRebootNotify }
+        if ($PSBoundParameters.ContainsKey("MaxRebootNotifyIntervalInHours")) { $setParams.MaxRebootNotifyIntervalInHours = $MaxRebootNotifyIntervalInHours }
+        if ($PSBoundParameters.ContainsKey("DelayRebootNotifyByDays")) { $setParams.DelayRebootNotifyByDays = $DelayRebootNotifyByDays }
+        if ($PSBoundParameters.ContainsKey("EnableForceReboot")) { $setParams.EnableForceReboot = $EnableForceReboot }
+        if ($PSBoundParameters.ContainsKey("DelayForceRebootByDays")) { $setParams.DelayForceRebootByDays = $DelayForceRebootByDays }
+        if ($PSBoundParameters.ContainsKey("WindowsUpdates")) { $setParams.WindowsUpgradeLevel = $WindowsUpdates }
+
+        Set-SEViewFilterSetting @setParams
     }
 }
 
