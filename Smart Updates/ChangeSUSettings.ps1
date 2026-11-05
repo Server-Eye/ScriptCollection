@@ -207,6 +207,48 @@ function Write-Log {
     } 
 }
 
+function Get-SECategoryIds {
+    param (
+        $AuthToken
+    )
+    # Retrieve the list of valid category IDs from the Smart Updates (patch) API.
+    # The helper module's Get-SESUCategories uses a different host (api-ms.server-eye.de)
+    # which may not resolve in all environments, so we query pm.server-eye.de directly.
+    # Cache the result per run so this is only fetched once.
+    if ($script:SECategoryIds) {
+        return $script:SECategoryIds
+    }
+
+    $CategoriesUrl = "https://pm.server-eye.de/patch/categories"
+
+    if ($AuthToken -is [string]) {
+        $Categories = Invoke-RestMethod -Uri $CategoriesUrl -Method Get -Headers @{"x-api-key" = $AuthToken }
+    }
+    else {
+        $Categories = Invoke-RestMethod -Uri $CategoriesUrl -Method Get -WebSession $AuthToken
+    }
+
+    $script:SECategoryIds = @($Categories).id
+    return $script:SECategoryIds
+}
+
+function Test-SECategoryIds {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string[]]$CategoryIds,
+        [Parameter(Mandatory = $true)]
+        $ValidCategoryIds
+    )
+    $InvalidCategories = @($CategoryIds | ForEach-Object { $_ -split "," } | ForEach-Object { $_.Trim() } | Where-Object { $_ -and ($_ -notin $ValidCategoryIds) })
+
+    if ($InvalidCategories.Count -gt 0) {
+        $InvalidList = $InvalidCategories -join ", "
+        $Message = "Die folgenden Update-Kategorien sind ungueltig: $InvalidList. Bitte verwenden Sie eine der gueltigen Kategorien, z.B. aus der Liste unter https://pm.server-eye.de/patch/categories."
+        Write-Log $Message
+        throw $Message
+    }
+}
+
 function Get-SEViewFilters {
     param (
         $AuthToken,
@@ -277,6 +319,7 @@ function Set-SEViewFilterSetting {
     param (
         $AuthToken,
         $ViewFilterSetting,
+        $ViewFilterName,
         $DelayInstallByDays,
         $InstallWindowInDays,
         $DelayRebootNotifyByDays,
@@ -292,6 +335,15 @@ function Set-SEViewFilterSetting {
     )
 
     Write-Log "Preparing settings payload for view filter ID: $($ViewFilterSetting.vfId)"
+
+    # Normalize category inputs: accept both array form (A,B,C) and a single comma-joined string ("A,B,C").
+    foreach ($paramName in @("AddedCategories", "RemovedCategories")) {
+        $value = Get-Variable -Name $paramName -ValueOnly -ErrorAction SilentlyContinue
+        if ($value) {
+            $split = @($value | ForEach-Object { $_ -split "," } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            Set-Variable -Name $paramName -Value $split
+        }
+    }
 
     if ($InstallWindowInDays) {
         $ViewFilterSetting.installWindowInDays = $InstallWindowInDays
@@ -336,7 +388,7 @@ function Set-SEViewFilterSetting {
 
     if ($DelayRebootNotifyByDays) {
         # We need to calculate this value since what the user enters is different from the value the backend expects.
-        $ViewFilterSetting.delayRebootNotifyByDays = $ViewFilterSetting.installWindowInDays - $DelayRebootNotifyByDays + $ViewFilterSetting.delayInstallByDays
+        $ViewFilterSetting.delayRebootNotifyByDays = [int]($ViewFilterSetting.installWindowInDays - $DelayRebootNotifyByDays + $ViewFilterSetting.delayInstallByDays)
     }
     else {
         $ViewFilterSetting.delayRebootNotifyByDays = $ViewFilterSetting.delayRebootNotifyByDays
@@ -350,6 +402,20 @@ function Set-SEViewFilterSetting {
     }
 
     if ($AddedCategories -or $RemovedCategories -or $WindowsUpgradeLevel) {
+        # Validate user-supplied category IDs against the current list from the API.
+        # Unknown IDs (e.g. the legacy "ITUNES" instead of "APPLE_ITUNES") would otherwise
+        # be rejected by the backend with an invalid_params error that only lands in the log.
+        if ($AddedCategories) {
+            $ValidCategoryIds = Get-SECategoryIds -AuthToken $AuthToken
+            Test-SECategoryIds -CategoryIds $AddedCategories -ValidCategoryIds $ValidCategoryIds
+        }
+        if ($RemovedCategories) {
+            if (-not $ValidCategoryIds) {
+                $ValidCategoryIds = Get-SECategoryIds -AuthToken $AuthToken
+            }
+            Test-SECategoryIds -CategoryIds $RemovedCategories -ValidCategoryIds $ValidCategoryIds
+        }
+
         $newSettingList = New-Object System.Collections.Generic.List[PSObject]
 
         # Always add MICROSOFT category if $WindowsUpdates (windowsUpgradeLevel) is set, as thats what the backend expects
@@ -357,7 +423,7 @@ function Set-SEViewFilterSetting {
             $newSettingList.Add([PSCustomObject]@{ id = "MICROSOFT" })
         }
 
-        foreach ($cat in $ViewFilterSetting.categories) {
+        foreach ($cat in @($ViewFilterSetting.categories)) {
             $newSettingList.Add($cat)
         }
 
@@ -404,7 +470,7 @@ function Set-SEViewFilterSetting {
 
     if ($DelayForceRebootByDays) {
         # We need to calculate this value since what the user enters is different from the value the backend expects.
-        $ViewFilterSetting.delayForceRebootByDays = $ViewFilterSetting.delayInstallByDays + $ViewFilterSetting.installWindowInDays - $DelayForceRebootByDays
+        $ViewFilterSetting.delayForceRebootByDays = [int]($ViewFilterSetting.delayInstallByDays + $ViewFilterSetting.installWindowInDays - $DelayForceRebootByDays)
     }
 
     if ($WindowsUpgradeLevel) {
@@ -421,12 +487,13 @@ function Set-SEViewFilterSetting {
     
     Write-Log "Sending updated settings to Server-Eye API: $SetCustomerViewFilterSettingURL"
 	
+    $SetCustomerViewFilterSettingError = $null
     if ($AuthToken -is [string]) {
         try {
             Invoke-RestMethod -Uri $SetCustomerViewFilterSettingURL -Method Post -Body $body -ContentType "application/json" -Headers @{"x-api-key" = $AuthToken } | Out-Null
         }
         catch {
-            Write-Log "Error while setting Customer Filter $_"
+            $SetCustomerViewFilterSettingError = $_
         }
     }
     else {
@@ -434,12 +501,19 @@ function Set-SEViewFilterSetting {
             Invoke-RestMethod -Uri $SetCustomerViewFilterSettingURL -Method Post -Body $body -ContentType "application/json" -WebSession $AuthToken | Out-Null
         }
         catch {
-            Write-Log "Error while setting Customer Filter $_"
+            $SetCustomerViewFilterSettingError = $_
         }
     }
 
+    if ($SetCustomerViewFilterSettingError) {
+        $ErrorMessage = "Error while setting Customer Filter for view filter $($ViewFilterSetting.vfId): $SetCustomerViewFilterSettingError"
+        Write-Log $ErrorMessage
+        throw $ErrorMessage
+    }
+
     Write-Host "Kunde: $((Get-SeApiCustomer -AuthToken $AuthToken -CId $CustomerId).companyName)" -ForegroundColor Green
-    Write-Host "Folgende Einstellungen wurden fuer die Gruppe '$($Group.name)' gesetzt:" -ForegroundColor Yellow
+    $GroupDisplayName = if ($ViewFilterName) { $ViewFilterName } else { $ViewFilterSetting.vfId }
+    Write-Host "Folgende Einstellungen wurden fuer die Gruppe '$GroupDisplayName' gesetzt:" -ForegroundColor Yellow
     Write-Host "Updateverzoegerung: $($ViewFilterSetting.delayInstallByDays) Tag(e)"
     Write-Host "Installationszeitfenster: $($ViewFilterSetting.installWindowInDays) Tag(e)"
     Write-Host "Neustart-Hinweis anzeigen: $($ViewFilterSetting.enableRebootNotify)"
@@ -477,6 +551,7 @@ foreach ($Group in $Groups) {
         $setParams = @{
             AuthToken         = $AuthToken
             ViewFilterSetting = $GroupSetting
+            ViewFilterName    = $Group.name
         }
 
         if ($PSBoundParameters.ContainsKey("DelayInstallByDays")) { $setParams.DelayInstallByDays = $DelayInstallByDays }
